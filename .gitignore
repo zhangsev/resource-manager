@@ -1,0 +1,11 @@
+node_modules/
+.build-tools/
+dist/
+src-tauri/target/
+src-tauri/gen/
+dist-portable/
+*.log
+# runtime data when running from the project folder
+data/
+backup/
+exports/

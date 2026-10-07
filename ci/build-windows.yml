@@ -1,0 +1,45 @@
+name: build-windows-portable
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install JS dependencies
+        run: npm install
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Rust helper tests
+        working-directory: src-tauri
+        run: cargo test --lib
+
+      - name: Build portable exe
+        run: npx tauri build --no-bundle
+
+      - name: Package portable folder
+        shell: pwsh
+        run: ./scripts/package-portable.ps1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ResManager-portable
+          path: dist-portable/ResManager-portable.zip
