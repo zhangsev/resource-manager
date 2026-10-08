@@ -137,3 +137,13 @@ npx tauri build --no-bundle
 - ZIP SHA256：`6583E3B0C8165283DA7F34B03903C149730C66A5CFB157A8A071FE04C70A7D99`。
 - ZIP 仅包含 `ResManager/ResManager.exe`（8,290,816 字节）和 `ResManager/使用说明.txt`（566 字节），不含数据库、备份或测试材料。
 - 本次没有重新编译或修改源代码，未重复运行单元测试；第二轮列出的运行时待验收项仍然保留。
+
+## v0.1.0 发布构建（2026-10-08）
+
+- 沿用本文工具链，重新运行 `npm test`（21/21）、`npm run typecheck`、`cargo test --lib`（8/8），全部通过。
+- 重新执行 `npx tauri build --no-bundle`：首次因之前验收进程占用 exe 而失败；关闭确认属于本项目的测试进程后重建成功，没有修改业务代码。
+- 重新执行 `pwsh ./scripts/package-portable.ps1` 成功；直接读取 ZIP 内 exe 的流校验，确认与本次 release 源 exe 哈希一致。
+- 本次重新编译产物取代先前已记录的二进制；exe 为 8,290,816 字节，SHA256：`AEE1714E7A1ADA5C66862BCD06A65963D542AC9A9159C7271D7AB8F06CADCA29`。
+- ZIP 为 4,083,858 字节，SHA256：`3D1A5E60E70DAFD58E8C406CE1F4585B24C3EED29576CD25DE29EC9E285526EF`。
+- ZIP 仅含 `ResManager/ResManager.exe` 和 `ResManager/使用说明.txt`，没有数据库或本地测试数据；另生成 `dist-portable/SHA256SUMS.txt` 供下载者校验 ZIP。
+- README 新增“下载即用”入口。发布说明保留第二轮已知限制；本次未重做 GUI 验收，也没有声称解决尚未覆盖的运行时问题。

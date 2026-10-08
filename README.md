@@ -10,6 +10,14 @@
 
 需求与验收标准见 [SPEC.md](SPEC.md)，开发说明见 [AGENTS.md](AGENTS.md)。
 
+## 下载即用（无需自行编译）
+
+1. 打开 [最新发布版本](https://github.com/zhangsev/resource-manager/releases/latest)，在 **Assets** 中下载 `ResManager-portable.zip`（不是 Source code）。
+2. 解压整个 ZIP，进入 `ResManager` 文件夹，双击 `ResManager.exe`。
+3. 适用于 Windows 10/11 x64，需要 WebView2 运行时；无需安装 Node、Rust 或 Visual Studio。
+
+程序会在所在目录创建 `data/`、`backup/` 等数据目录。升级前退出程序并备份数据，只替换程序文件，保留原数据目录。发布页附带 SHA256 校验文件和已知限制。
+
 ## 只看界面（不需要 Rust）
 
 ```bash
