@@ -147,3 +147,10 @@ npx tauri build --no-bundle
 - ZIP 为 4,083,858 字节，SHA256：`3D1A5E60E70DAFD58E8C406CE1F4585B24C3EED29576CD25DE29EC9E285526EF`。
 - ZIP 仅含 `ResManager/ResManager.exe` 和 `ResManager/使用说明.txt`，没有数据库或本地测试数据；另生成 `dist-portable/SHA256SUMS.txt` 供下载者校验 ZIP。
 - README 新增“下载即用”入口。发布说明保留第二轮已知限制；本次未重做 GUI 验收，也没有声称解决尚未覆盖的运行时问题。
+
+### 发布完成与公开下载验证
+
+- 已发布公开 Release：[ResManager v0.1.0](https://github.com/zhangsev/resource-manager/releases/tag/v0.1.0)，标签指向 `eac5916f558ddb0c656d4debe51563adb283b1eb`。
+- 附件：`ResManager-portable.zip` 和 `SHA256SUMS.txt`。上传后 GitHub 返回的两份附件 SHA256 均与本地一致，再将草稿设为公开发布。
+- 使用不含登录凭据的请求读取 latest Release 并实际下载 ZIP，复算 SHA256 为 `3D1A5E60E70DAFD58E8C406CE1F4585B24C3EED29576CD25DE29EC9E285526EF`，与本地包一致。
+- 用户可直接下载 ZIP、解压后运行，不需要自行编译。
