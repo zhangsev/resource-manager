@@ -208,3 +208,13 @@ npx tauri build --no-bundle
 - exe SHA256：`A8BB3A078D7685ED22F39956683EA0002A820C9052F73DCBE37F1A1E598052D3`。
 - ZIP：4,132,207 字节；SHA256：`D0921BFA056E24A6D5D6AA3F3AFD233AF6257F924809EC15A35446E88B5A26E8`。
 - 发布说明包含两项功能：**精简版快速添加（右下角小窗）**、**可点击链接 / Markdown 渲染 / 代码高亮**；保留第三轮实测结论及此前已知限制，不覆盖旧 v0.1.0 Release。
+
+### v0.2.0 发布完成与匿名下载复核
+
+- 已提交并推送发布源码：`ded8732d7b59c2ee8e5446740e171f45888fc687`；远程标签 `v0.2.0` 指向该提交。
+- 公开 Release：[ResManager v0.2.0](https://github.com/zhangsev/resource-manager/releases/tag/v0.2.0)，已设置为 latest；说明中的两项新功能已通过公开 API 读取核对。
+- 先创建草稿，上传 `ResManager-portable.zip` 与 `SHA256SUMS.txt`，检查 GitHub 返回的附件大小、状态和 SHA256 均匹配后再发布；旧 v0.1.0 未修改。
+- 使用不带 Authorization、Cookie 或登录会话的请求实际下载这两个公开附件；ZIP SHA256 为 `D0921BFA056E24A6D5D6AA3F3AFD233AF6257F924809EC15A35446E88B5A26E8`，与本地完全一致。
+- 下载的 `SHA256SUMS.txt` 自身 SHA256 为 `53773E9C9F6B67C5F7DF3075D67843FE7BEED417B31DE9CA42DD3C27940AC415`，与本地一致；其中记录的 ZIP 哈希和文件名也与下载文件匹配。
+- 再读取下载 ZIP 内的 exe，SHA256 为 `A8BB3A078D7685ED22F39956683EA0002A820C9052F73DCBE37F1A1E598052D3`，与本次构建的 0.2.0 exe 一致。
+- 公开直链：https://github.com/zhangsev/resource-manager/releases/download/v0.2.0/ResManager-portable.zip 。解压后运行，无需自行编译。
