@@ -57,6 +57,18 @@ Windows 编译环境：Node 20+，Rust stable（rustup，MSVC 工具链），Vis
 
 开发时把数据放到别处，避免写进 `target/debug`：设置环境变量 `RESMANAGER_HOME=D:\tmp\resmanager-dev`。
 
+## 待验证改动（第三轮：链接 / Markdown / 代码高亮）
+
+需求见 SPEC 4.7。新增依赖 `marked`、`dompurify`、`highlight.js`（package.json 已写，需 `npm install` 更新 lock 文件）。
+新增：`src/lib/linkify.ts`、`src/lib/codelang.ts`、`src/lib/markdown.ts`（纯逻辑，已有测试）、`src/lib/highlight.ts`（只注册 codelang.ts 列出的语言）、`src/components/rich.tsx`。
+修改：`ItemDetail.tsx`（渲染）、`ItemEditor.tsx`（Markdown 编辑/预览、命令「高亮语言」）、`types.ts`（`meta.lang`）、`styles.css`、`tests/core.test.ts`（24 项）。
+在云端已验证：24 项测试通过；浏览器预览中渲染、链接点击不跳转应用页面、代码块复制、`<script>` 不执行、外部图片不加载、浅深色均正常。
+需要在 Windows 桌面版确认：
+1. 点击 Markdown 和普通文本中的链接用系统默认浏览器打开，主窗口不发生跳转
+2. 代码块「复制」写入系统剪贴板，且不会被剪贴板历史重复记录
+3. 已有数据（没有 `meta.lang` 的旧命令）显示正常
+4. exe 体积增加量（预计 150～250KB），记录到 VALIDATION.md
+
 ## 待验证改动（2026-10-01 第二轮）
 
 快速添加改为精简小窗（需求见 SPEC 4.2）。改动：`src/views/QuickAdd.tsx` 重写，新增 `src/lib/quickparse.ts`（含测试），`platform.ts` 的 `placeBottomRight`，`services.ts` 新增 `EV_EDIT_DRAFT` 和 `EV_TRAY_QUICKADD`，`MainWindow.tsx` 接收草稿，`lib.rs` 托盘"快速添加"改为发事件、由 JS 定位，`tauri.conf.json` 调整 quickadd 窗口尺寸，capabilities 增加窗口定位和显示器相关权限。

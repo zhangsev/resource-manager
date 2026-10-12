@@ -30,6 +30,8 @@ export interface ItemMeta {
   installerPath?: string;
   /** software: license key, account hint, etc. Masked in the UI. */
   secret?: string;
+  /** command: highlight language chosen by the user; empty = auto-detect (see codelang.ts) */
+  lang?: string;
   /** file: whether the path is a directory (set on drop) */
   isDir?: boolean;
 }

@@ -244,3 +244,85 @@ test('quick add: builds items with auto title', () => {
   assert.deepEqual(s.tags, ['压缩']);
   assert.equal(buildQuickItem('software', 'https://www.7-zip.org/x', empty).title, '7-zip.org');
 });
+
+// ---------------------------------------------------------------- links, languages, markdown
+
+import { isSafeHref, linkify } from '../src/lib/linkify';
+import { commandLang, detectLang, normalizeLang } from '../src/lib/codelang';
+import { codeBlockHtml, createMarkdown } from '../src/lib/markdown';
+
+test('linkify: finds urls and trims sentence punctuation', () => {
+  const segs = linkify('文档见 https://v2.tauri.app/start/。另一个：www.example.com/a?b=1, 完');
+  const urls = segs.filter((s) => s.kind === 'url');
+  assert.deepEqual(
+    urls.map((u) => (u.kind === 'url' ? [u.text, u.href] : [])),
+    [
+      ['https://v2.tauri.app/start/', 'https://v2.tauri.app/start/'],
+      ['www.example.com/a?b=1', 'https://www.example.com/a?b=1'],
+    ],
+  );
+  assert.equal(segs.map((s) => s.text).join(''), '文档见 https://v2.tauri.app/start/。另一个：www.example.com/a?b=1, 完');
+  const paren = linkify('(see https://en.wikipedia.org/wiki/Foo_(bar))');
+  assert.equal(paren.find((s) => s.kind === 'url')!.text, 'https://en.wikipedia.org/wiki/Foo_(bar)');
+  assert.deepEqual(linkify('no links here'), [{ kind: 'text', text: 'no links here' }]);
+  assert.ok(isSafeHref('https://a.b') && isSafeHref('mailto:x@y.z'));
+  assert.ok(!isSafeHref('javascript:alert(1)') && !isSafeHref('file:///C:/x'));
+});
+
+test('code language: detection and aliases', () => {
+  assert.equal(detectLang('docker ps -a'), 'bash');
+  assert.equal(detectLang('Get-Process | Sort-Object CPU'), 'powershell');
+  assert.equal(detectLang('$p = Get-Item .'), 'powershell');
+  assert.equal(detectLang('SELECT * FROM t'), 'sql');
+  assert.equal(detectLang('netstat -ano | findstr :8080'), 'dos');
+  assert.equal(detectLang('echo %PATH%'), 'dos');
+  assert.equal(commandLang('docker ps', 'python'), 'python');
+  assert.equal(commandLang('docker ps', 'nonsense'), 'bash');
+  assert.equal(normalizeLang('Bash'), 'bash');
+  assert.equal(normalizeLang('ps1'), 'powershell');
+  assert.equal(normalizeLang('yml'), 'yaml');
+  assert.equal(normalizeLang('mermaid'), null);
+  assert.equal(normalizeLang(''), null);
+});
+
+test('markdown: renders gfm, escapes raw html, guards links and images', () => {
+  const hl = (code: string, lang: string) => `<span class="hl-${lang}">${code.replace(/</g, '&lt;')}</span>`;
+  const render = createMarkdown(hl);
+  const html = render(
+    [
+      '# 标题',
+      '- [ ] 待办',
+      '| a | b |',
+      '|---|---|',
+      '| 1 | 2 |',
+      '<script>alert(1)</script>',
+      '[ok](https://x.com) [bad](javascript:alert(1))',
+      'https://bare.example.com/path',
+      '![pic](https://img.example.com/a.png)',
+      '```ps1',
+      'Get-Date',
+      '```',
+      '```',
+      '<b>plain</b>',
+      '```',
+      '```mermaid',
+      'graph TD',
+      '```',
+    ].join('\n'),
+  );
+  assert.ok(html.includes('<h1'));
+  assert.ok(html.includes('type="checkbox"'));
+  assert.ok(html.includes('<table>'));
+  assert.ok(!html.includes('<script>'), 'raw html must be escaped');
+  assert.ok(html.includes('&lt;script&gt;'));
+  assert.ok(html.includes('href="https://x.com"'));
+  assert.ok(!html.includes('javascript:'));
+  assert.ok(html.includes('href="https://bare.example.com/path"'), 'bare urls are autolinked');
+  assert.ok(!html.includes('<img'), 'remote images are not loaded');
+  assert.ok(html.includes('img-link'));
+  assert.ok(html.includes('class="hl-powershell"'), 'named fence is highlighted');
+  assert.ok(html.includes('&lt;b&gt;plain&lt;/b&gt;'), 'unnamed fence is escaped, not highlighted');
+  assert.ok(!html.includes('hl-mermaid'), 'unknown language is not highlighted');
+  assert.equal((html.match(/class="code-copy"/g) ?? []).length, 3, 'every code block has a copy button');
+  assert.ok(codeBlockHtml('<x>', null).includes('&lt;x&gt;'));
+});

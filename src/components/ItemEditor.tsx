@@ -7,6 +7,8 @@ import { parseParams } from '../lib/params';
 import { httpFetch, pickFile } from '../lib/platform';
 import { ITEM_TYPES, TYPE_LABEL, type Item, type ItemType } from '../lib/types';
 import { TagInput, TypeBadge } from './common';
+import { MarkdownField } from './rich';
+import { LANGS, detectLang } from '../lib/codelang';
 
 const CONTENT_LABEL: Record<ItemType, string> = {
   command: '命令',
@@ -145,15 +147,31 @@ export function ItemEditor({
         ))}
       </div>
 
+      {(it.type === 'text' || it.type === 'software') && (
+        <div className="field">
+          <span>{CONTENT_LABEL[it.type]}</span>
+          <MarkdownField
+            inputRef={(el) => {
+              firstRef.current = el;
+            }}
+            rows={it.type === 'text' ? (compact ? 6 : 10) : 3}
+            value={it.content}
+            placeholder={CONTENT_PLACEHOLDER[it.type]}
+            onChange={setContent}
+          />
+        </div>
+      )}
+
+      {it.type !== 'text' && it.type !== 'software' && (
       <label className="field">
         <span>{CONTENT_LABEL[it.type]}</span>
-        {it.type === 'command' || it.type === 'text' || it.type === 'software' ? (
+        {it.type === 'command' ? (
           <textarea
             ref={(el) => {
               firstRef.current = el;
             }}
-            className={it.type === 'command' ? 'mono' : ''}
-            rows={it.type === 'text' ? (compact ? 6 : 10) : it.type === 'command' ? 4 : 3}
+            className="mono"
+            rows={4}
             value={it.content}
             placeholder={CONTENT_PLACEHOLDER[it.type]}
             onChange={(e) => setContent(e.target.value)}
@@ -191,6 +209,21 @@ export function ItemEditor({
           </small>
         )}
       </label>
+      )}
+
+      {it.type === 'command' && (
+        <label className="field lang-field">
+          <span>高亮语言</span>
+          <select value={it.meta.lang ?? ''} onChange={(e) => setMeta({ lang: e.target.value || undefined })}>
+            <option value="">自动（{LANGS.find((l) => l.id === detectLang(it.content))?.label}）</option>
+            {LANGS.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
 
       <div className="row gap">
         <label className="field grow">
@@ -262,10 +295,10 @@ export function ItemEditor({
       )}
 
       {(it.type === 'link' || it.type === 'file') && (
-        <label className="field">
+        <div className="field">
           <span>备注</span>
-          <textarea rows={2} value={it.meta.notes ?? ''} onChange={(e) => setMeta({ notes: e.target.value })} />
-        </label>
+          <MarkdownField rows={2} value={it.meta.notes ?? ''} onChange={(notes) => setMeta({ notes })} />
+        </div>
       )}
 
       <label className="field">

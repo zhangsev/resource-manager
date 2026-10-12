@@ -6,6 +6,8 @@ import { folderPath } from '../lib/folders';
 import { copyText, pickFile } from '../lib/platform';
 import { TYPE_LABEL, type Item } from '../lib/types';
 import { ConfirmButton, Modal, ParamForm, TypeBadge, timeAgo } from './common';
+import { CodeView, LinkText, Markdown } from './rich';
+import { LANGS, commandLang } from '../lib/codelang';
 
 export function ItemDetail({
   item,
@@ -87,9 +89,9 @@ export function ItemDetail({
             {sec.label}
           </button>
         )}
-        {item.type !== 'text' && item.type !== 'command' && item.content && (
+        {(item.type === 'software' || item.type === 'file') && item.content && (
           <button className="btn" onClick={() => copy(item.content)}>
-            复制{item.type === 'software' ? '说明' : item.type === 'link' ? '' : '路径'}
+            复制{item.type === 'software' ? '说明' : '路径'}
           </button>
         )}
         <span className="grow" />
@@ -121,13 +123,13 @@ export function ItemDetail({
 
       {item.type === 'software' ? (
         <div className="kv">
-          {item.content && <Kv k="说明" v={<div className="pre-wrap">{item.content}</div>} />}
+          {item.content && <Kv k="说明" v={<Markdown source={item.content} />} />}
           {m.website && (
             <Kv
               k="官网"
               v={
                 <span className="row gap-s">
-                  <span className="mono ellipsis">{m.website}</span>
+                  <LinkText className="mono ellipsis" text={m.website} />
                   <button className="link-btn" onClick={() => copy(m.website!)}>
                     复制
                   </button>
@@ -170,9 +172,25 @@ export function ItemDetail({
         </div>
       ) : (
         <div className="detail-body">
-          <pre className={'content-box' + (item.type === 'text' ? ' prose' : ' mono')}>
-            {item.content}
-          </pre>
+          {item.type === 'command' ? (
+            <>
+              <CodeView code={item.content} lang={commandLang(item.content, m.lang)} />
+              <div className="muted small code-lang-note">
+                {LANGS.find((l) => l.id === commandLang(item.content, m.lang))?.label}
+                {m.lang ? '' : '（自动识别）'}
+              </div>
+            </>
+          ) : item.type === 'text' ? (
+            <div className="content-box prose">
+              <Markdown source={item.content} />
+            </div>
+          ) : item.type === 'link' ? (
+            <div className="content-box mono">
+              <LinkText text={item.content} />
+            </div>
+          ) : (
+            <pre className="content-box mono">{item.content}</pre>
+          )}
           {(item.type === 'command' || item.type === 'text') && (
             <button className="copy-float" onClick={() => copy(item.content)} title="复制全部">
               复制
@@ -182,7 +200,7 @@ export function ItemDetail({
           {m.notes && (
             <div className="notes">
               <div className="notes-title">备注</div>
-              <div className="pre-wrap">{m.notes}</div>
+              <Markdown source={m.notes} />
             </div>
           )}
         </div>

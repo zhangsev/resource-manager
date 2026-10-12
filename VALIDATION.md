@@ -154,3 +154,57 @@ npx tauri build --no-bundle
 - 附件：`ResManager-portable.zip` 和 `SHA256SUMS.txt`。上传后 GitHub 返回的两份附件 SHA256 均与本地一致，再将草稿设为公开发布。
 - 使用不含登录凭据的请求读取 latest Release 并实际下载 ZIP，复算 SHA256 为 `3D1A5E60E70DAFD58E8C406CE1F4585B24C3EED29576CD25DE29EC9E285526EF`，与本地包一致。
 - 用户可直接下载 ZIP、解压后运行，不需要自行编译。
+
+## 第三轮：链接 / Markdown / 代码高亮验收（2026-10-13）
+
+### 安装、测试与构建
+
+已阅读 AGENTS.md 第三轮清单及 SPEC 4.7。保留工作区中已有的第三轮实现，只执行依赖锁定和验收，没有修改业务代码、架构、数据库迁移或现有功能需求。
+
+先执行 `npm install`，成功新增 4 个包，更新 `package-lock.json`；实际解析为 `marked@18.1.1`、`dompurify@3.4.17`、`highlight.js@11.12.0`，以及 DOMPurify 的可选类型依赖 `@types/trusted-types@2.0.7`。沿用机器现有 npm registry（新条目的 resolved 指向 registry.npmmirror.com），未修改全局 npm 配置。
+
+随后沿用本文工具链环境，按顺序执行：
+
+```powershell
+$env:CARGO_HOME = Join-Path $PWD '.build-tools/cargo'
+$env:RUSTUP_HOME = Join-Path $PWD '.build-tools/rustup'
+$env:PATH = "$env:CARGO_HOME/bin;$env:PATH"
+npm test
+npm run typecheck
+cargo test --lib --manifest-path src-tauri/Cargo.toml
+npx tauri build --no-bundle
+```
+
+结果：前端 **24/24**、TypeScript 无错误、Windows Rust **8/8**、release 构建成功。无需类型错误、Rust 编译或运行时逻辑修复，因此未额外改变源代码。构建仍有既有的 `.app` identifier、Vite 大 chunk、MSVC linker_messages 非阻断警告；本次主 JS 为 778.93 kB，gzip 290.60 kB。
+
+### 桌面版 4 点逐项验证
+
+运行实际 release exe，设置 `RESMANAGER_HOME=D:\dev\project\resource-manager\.build-tools\validation-round3`。通过 SQLite `VACUUM INTO` 复制上轮测试数据库至独立目录，保留其中 3 条旧命令（`meta` 均为 `{}`，没有 `lang`）；只向该副本加入 Markdown / 普通链接测试条目。没有写入用户数据库或发布包中的数据。
+
+| 项目 | 实测结果与证据 |
+|---|---|
+| 1. Markdown 和普通文本链接在默认浏览器打开，主窗口不跳转 | **通过。** Windows HTTP 默认关联为 `ChromeHTML`。在主窗口实际点击 Markdown 命名链接、Markdown 文本内自动识别的裸网址、普通 `LinkText` 网址，分别访问本机测试页 `/markdown`、`/autolink`、`/plain`。窗口清单出现对应标题的 `chrome.exe`，本机服务收到 Chrome/155 的 document 请求。主窗口可访问性树始终保留 `http://tauri.localhost/` 与当前条目标题，未跳转到测试网页。 |
+| 2. 代码块复制写入系统剪贴板，不重复进入历史 | **通过。** 实际点击 JavaScript、SQL 两个代码块各自的“复制”，使用系统剪贴板读取与预期字符串逐字比较均为 True：只含对应块正文，不含语言标签、按钮文字、另一块或 Markdown 围栏。每次等待 3 秒（覆盖多次 1 秒轮询），SQLite 历史计数仍为 0。另从应用外写入 `round3 external clipboard control 20261013` 作为阳性对照，3 秒后历史增加为 1；再复制第一段代码，历史仍只有该对照文本，没有应用自身复制的记录。 |
+| 3. 没有 `meta.lang` 的旧命令显示正常 | **通过。** 逐项查看复制自第二轮数据库的 Docker、SSH、netstat 命令：原文和 `{{参数}}` 均完整；前两项显示 `Shell (bash)（自动识别）`，netstat 显示 `CMD / 批处理（自动识别）`，高亮正常。结束后只读查询确认 3 条记录的 `meta` 仍为 `{}`，数据库 integrity_check 为 `ok`，无需迁移或回写语言字段。 |
+| 4. exe 体积变化 | **通过，已测量。** 上轮发布 exe 8,290,816 字节，本次 8,339,968 字节，增加 **49,152 字节 = 48 KiB ≈ 49.152 kB，约 0.593%**。低于清单预估的 150～250 KB；此处记录实际最终 exe 增量，而非前端未压缩 JS 的增量。 |
+
+补充观察：桌面浅色、深色下 Markdown 和 JavaScript/SQL/CMD 高亮均可读；原始 `<script>` 显示为文本，没有弹出脚本对话框；外部图片显示为链接，本机请求日志中没有 `/should-not-load.png` 请求。此为针对测试样例的检查，不代表完整安全审计。SPEC 4.7 含其他复合验收条件，本轮没有一并全部勾选；未重复全部浏览器预览和编辑器交互测试。
+
+### 产物、修改范围与清理
+
+- exe：`D:\dev\project\resource-manager\src-tauri\target\release\resmanager.exe`。
+- SHA256：`CA983DFBA8A4754DAC54A2FC5638D844CE9E6F56F89AE0955AD726D9644E5B60`。
+- 本轮新增修改仅为 `package-lock.json` 和本文；用户先前提供的第三轮代码、AGENTS.md、SPEC.md 等工作区改动均原样保留，未自动提交或推送。
+- 测试进程和仅监听 `127.0.0.1:18766` 的本机测试服务已停止；确认剪贴板仍为测试内容后恢复了原剪贴板文本。隔离测试数据和脚本保留在被 Git 忽略的 `.build-tools/`。
+- 本轮未重新打包 ZIP、未上传或覆盖 GitHub v0.1.0 Release；现有公开下载及 dist-portable 仍是此前发布版本。
+- 本轮 4 点未发现阻断问题；多显示器、托盘人工点击等此前未覆盖项目仍不因本轮验收而视为通过。
+
+## v0.2.0 发布构建（2026-10-13）
+
+- `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json` 统一升级为 **0.2.0**，同步 `package-lock.json` 和 `src-tauri/Cargo.lock` 的根项目版本。
+- 使用本文既有工具链，重新执行前端测试 **24/24**、TypeScript 类型检查、Rust 测试 **8/8**，全部通过；`npx tauri build --no-bundle` 成功，exe 内嵌 ProductVersion 已确认为 `0.2.0`。
+- `pwsh ./scripts/package-portable.ps1` 成功，生成 `dist-portable/ResManager-portable.zip` 及单独的 `dist-portable/SHA256SUMS.txt`。执行前已确认打包脚本清理范围仅为项目内 dist-portable，且其中不含用户数据库。
+- ZIP 仅包含 `ResManager/ResManager.exe`（8,339,968 字节）与 `ResManager/使用说明.txt`（566 字节）；直接读取 ZIP 内 exe 流校验，确认与 release 源 exe 一致。
+- exe SHA256：`A8BB3A078D7685ED22F39956683EA0002A820C9052F73DCBE37F1A1E598052D3`。
+- ZIP：4,132,207 字节；SHA256：`D0921BFA056E24A6D5D6AA3F3AFD233AF6257F924809EC15A35446E88B5A26E8`。
+- 发布说明包含两项功能：**精简版快速添加（右下角小窗）**、**可点击链接 / Markdown 渲染 / 代码高亮**；保留第三轮实测结论及此前已知限制，不覆盖旧 v0.1.0 Release。
