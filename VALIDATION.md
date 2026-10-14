@@ -292,3 +292,15 @@ npx tauri build --no-bundle
 - ZIP：**4,201,999 字节**；SHA256：`CB8F5AE3E42BA469B20EB5CD82A6BB019D72D3070C43434B02B39B5D4643786E`。
 - `SHA256SUMS.txt` 自身 SHA256：`7B93AD0D0091B5E836EDE55A8B3C8784ED60B7CD9A8F7BE43D820BD9EB9A23E1`。
 - 发布说明准备列出待办（截止时间/优先级/子任务/右下角提醒）、快速添加类型下拉框及 `!高 ^周五 17:00` 写法、升级自动备份、内置使用说明；升级步骤明确为 **托盘退出 → 同目录覆盖 exe（保留 data/backup）→ 启动**。公开发布和匿名下载复核结果在完成后追加。
+
+### v0.3.0 发布完成与匿名下载复核
+
+- 已提交并推送发布源码：`80db6fbc8b46a35a65bf35f4dd4bca9506693d7c`；公开 API 确认标签 `v0.3.0` 指向该提交。
+- 公开 Release：[ResManager v0.3.0](https://github.com/zhangsev/resource-manager/releases/tag/v0.3.0)，已设置为 latest，非预发布。先创建草稿，上传 ZIP 与 `SHA256SUMS.txt`，逐一核对 GitHub 返回的上传状态、文件大小及 SHA256 后才公开；旧 Release 未修改。
+- 匿名读取公开发布说明，确认包含用户要求的四项功能，以及 **托盘退出 → 覆盖 exe → 启动**；说明明确保留 `data/`、`backup/`、`exports/`，并建议升级前复制备份旧程序目录。已知限制与第四轮验证范围一并保留。
+- **2026-10-15 04:24:56（UTC+8）** 完成匿名下载：独立 HttpClient 禁用 Cookie 与默认凭据，不读取 Git 凭据、不设置 Authorization，也不使用浏览器登录会话，实际下载两个公开附件。
+- 下载 ZIP 为 **4,201,999 字节**，SHA256：`CB8F5AE3E42BA469B20EB5CD82A6BB019D72D3070C43434B02B39B5D4643786E`，与本地打包产物完全一致。
+- 下载的 `SHA256SUMS.txt` 为 **90 字节**，自身 SHA256：`7B93AD0D0091B5E836EDE55A8B3C8784ED60B7CD9A8F7BE43D820BD9EB9A23E1`；与本地文件完全一致，内容记录的 ZIP 哈希及文件名也与下载文件匹配。
+- 读取下载 ZIP 内 exe 流，确认大小 **8,496,128 字节**、SHA256：`E5A41C394FAD8105DC4525A79B338BE7E7AC5F550B4E64BAF448B4AF285E76E3`，与第四轮已验证 0.3.0 exe 完全一致。
+- 本机复核材料在 Git 忽略的 `.build-tools/verify-v0.3.0/`，仅源码和验证文档进入 Git，附件通过 Release 提供。
+- 直接下载：[Windows 便携 ZIP](https://github.com/zhangsev/resource-manager/releases/download/v0.3.0/ResManager-portable.zip) · [SHA256SUMS.txt](https://github.com/zhangsev/resource-manager/releases/download/v0.3.0/SHA256SUMS.txt)。解压即可运行，无需自行打包。
