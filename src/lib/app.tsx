@@ -16,7 +16,7 @@ export function getStore(): Promise<{ store: Store; paths: AppPaths }> {
   if (!storePromise) {
     storePromise = (async () => {
       const paths = await getAppPaths();
-      const store: Store = isTauri ? new SqliteStore(paths.db) : new MemoryStore();
+      const store: Store = isTauri ? new SqliteStore(paths.db, paths.backup) : new MemoryStore();
       await store.init();
       return { store, paths };
     })();
@@ -88,6 +88,8 @@ export interface AppState {
   allTags: string[];
   reload: () => Promise<void>;
   saveItem: (item: Item) => Promise<Item>;
+  /** save bookkeeping changes (reminder state…) without bumping updatedAt; one broadcast */
+  patchItems: (items: Item[]) => Promise<void>;
   deleteItem: (id: string) => Promise<void>;
   markUsed: (id: string) => Promise<void>;
   saveFolder: (f: Folder) => Promise<void>;
@@ -202,6 +204,11 @@ export function AppProvider({ children, primary = false }: { children: ReactNode
       await changed();
       return next;
     },
+    patchItems: async (list) => {
+      if (!list.length) return;
+      await storeRef.current!.saveItems(list);
+      await changed();
+    },
     deleteItem: async (id) => {
       await storeRef.current!.deleteItem(id);
       await changed();
@@ -251,6 +258,13 @@ export function AppProvider({ children, primary = false }: { children: ReactNode
 
 let seedOnce: Promise<void> | null = null;
 
+function tomorrowAt(h: number): number {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  d.setHours(h, 0, 0, 0);
+  return d.getTime();
+}
+
 async function seedIfEmpty(s: Store) {
   const st = await loadSettings(s);
   if (st.seeded) return;
@@ -262,24 +276,12 @@ async function seedIfEmpty(s: Store) {
     const fSoft: Folder = { id: newId(), parentId: null, name: '工具软件', sort: 1, createdAt: now };
     for (const f of [fCmd, fDocker, fSoft]) await s.saveFolder(f);
     const samples: Item[] = [
-      blankItem('text', {
-        title: '欢迎使用 ResManager',
-        pinned: true,
-        tags: ['说明'],
-        content: [
-          'Alt+Space 呼出搜索，输入即搜（支持拼音 / 首字母）',
-          'Alt+Shift+Space 快速添加（右下角小窗，Enter 保存）',
-          '',
-          '搜索框里：',
-          '  ↑ ↓ 选择，Enter 执行主操作（复制 / 打开）',
-          '  Ctrl+Enter 次操作（命令在终端执行 / 在文件夹中显示）',
-          '  Tab 切换到剪贴板历史',
-          '',
-          '把文件、软件安装包直接拖进主窗口即可收录（只记路径，不复制文件）。',
-          '命令里可以写 {{参数}} 或 {{参数:默认值}}，使用时会提示填写。',
-          '',
-          '这些示例条目可以随意删除。',
-        ].join('\n'),
+      // the full 使用说明 is added by services.ensureGuide (also for users upgrading from older versions)
+      blankItem('todo', {
+        title: '试试待办：整理常用命令',
+        tags: ['示例'],
+        content: '- [x] 打开 ResManager\n- [ ] 用 Alt+Shift+Space 收录一条命令\n- [ ] 在详情页点一下这里的方框试试',
+        meta: { due: tomorrowAt(10), priority: 'mid', remindBefore: 0, done: false },
       }),
       blankItem('command', {
         title: 'Docker 清理无用镜像',

@@ -1,6 +1,8 @@
-export type ItemType = 'command' | 'text' | 'link' | 'software' | 'file';
+export type ItemType = 'command' | 'text' | 'link' | 'software' | 'file' | 'todo';
 
-export const ITEM_TYPES: ItemType[] = ['command', 'text', 'link', 'software', 'file'];
+export const ITEM_TYPES: ItemType[] = ['command', 'text', 'link', 'software', 'file', 'todo'];
+
+export type TodoPriority = 'high' | 'mid' | 'low';
 
 export const TYPE_LABEL: Record<ItemType, string> = {
   command: '命令',
@@ -8,6 +10,7 @@ export const TYPE_LABEL: Record<ItemType, string> = {
   link: '链接',
   software: '软件',
   file: '文件',
+  todo: '待办',
 };
 
 export const TYPE_ICON: Record<ItemType, string> = {
@@ -16,6 +19,7 @@ export const TYPE_ICON: Record<ItemType, string> = {
   link: '↗',
   software: '◆',
   file: '▤',
+  todo: '✓',
 };
 
 /** Type-specific extra fields. All optional. */
@@ -34,6 +38,25 @@ export interface ItemMeta {
   lang?: string;
   /** file: whether the path is a directory (set on drop) */
   isDir?: boolean;
+
+  // ---- todo (see todo.ts)
+  /** due time, ms since epoch */
+  due?: number | null;
+  priority?: TodoPriority;
+  /** minutes before `due` to remind; 0 = on time; null/undefined = no reminder */
+  remindBefore?: number | null;
+  done?: boolean;
+  doneAt?: number | null;
+  /** "remind me again later" */
+  snoozeUntil?: number | null;
+  /** reminder time that has already been shown (prevents repeats) */
+  notifiedAt?: number | null;
+  /** reminder time the user dismissed with ×（关闭） */
+  ackAt?: number | null;
+
+  // ---- built-in guide
+  /** version of the built-in 使用说明 this item was generated from */
+  guideVersion?: number;
 }
 
 /**
@@ -44,6 +67,7 @@ export interface ItemMeta {
  *  - link:    the URL
  *  - software: description / usage notes
  *  - file:    the absolute path
+ *  - todo:    notes / sub-tasks as Markdown ("- [ ] ..."); the task itself is the title
  */
 export interface Item {
   id: string;
@@ -91,6 +115,12 @@ export interface Settings {
   aiModel: string;
   theme: 'system' | 'light' | 'dark';
   seeded: boolean;
+  /** also send a Windows notification when a todo reminder pops up */
+  todoSystemNotify: boolean;
+  /** app version that last ran on this data (for the upgrade backup) */
+  lastVersion: string;
+  /** highest built-in guide version already placed into the data */
+  guideVersionShown: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -109,6 +139,9 @@ export const DEFAULT_SETTINGS: Settings = {
   aiModel: 'gpt-4o-mini',
   theme: 'system',
   seeded: false,
+  todoSystemNotify: true,
+  lastVersion: '',
+  guideVersionShown: 0,
 };
 
 export function newId(): string {

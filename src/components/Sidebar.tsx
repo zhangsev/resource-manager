@@ -3,6 +3,8 @@ import { toastError, useApp } from '../lib/app';
 import { buildTree, descendantIds, type FolderNode } from '../lib/folders';
 import { ITEM_TYPES, TYPE_LABEL, newId, type ItemType } from '../lib/types';
 import { TypeBadge } from './common';
+import { todoCounts } from '../lib/todo';
+import { useNow } from './todo';
 
 export type Filter =
   | { kind: 'all' }
@@ -33,6 +35,8 @@ export function Sidebar({ filter, onFilter }: { filter: Filter; onFilter: (f: Fi
   const [showAllTags, setShowAllTags] = useState(false);
 
   const tree = useMemo(() => buildTree(folders), [folders]);
+  const now = useNow();
+  const todo = useMemo(() => todoCounts(items, now), [items, now]);
 
   const counts = useMemo(() => {
     const byType = new Map<ItemType, number>();
@@ -186,6 +190,21 @@ export function Sidebar({ filter, onFilter }: { filter: Filter; onFilter: (f: Fi
     <aside className="sidebar">
       <div className="side-group">
         <Row f={{ kind: 'all' }} label="全部" count={items.length} icon="≡" />
+        <div
+          className={'side-row' + (filter.kind === 'type' && filter.type === 'todo' ? ' on' : '')}
+          onClick={() => onFilter({ kind: 'type', type: 'todo' })}
+        >
+          <span className="side-icon">
+            <TypeBadge type="todo" size="sm" />
+          </span>
+          <span className="side-label">待办</span>
+          {todo.overdue > 0 && (
+            <span className="side-badge" title={`${todo.overdue} 条已过期`}>
+              {todo.overdue}
+            </span>
+          )}
+          <span className="side-count">{todo.open}</span>
+        </div>
         <Row f={{ kind: 'pinned' }} label="置顶" count={counts.pinned} icon="●" />
         <Row f={{ kind: 'recent' }} label="最近使用" icon="◷" />
         <Row f={{ kind: 'clips' }} label="剪贴板历史" count={clips.length} icon="⎘" />
@@ -193,7 +212,7 @@ export function Sidebar({ filter, onFilter }: { filter: Filter; onFilter: (f: Fi
 
       <div className="side-title">类型</div>
       <div className="side-group">
-        {ITEM_TYPES.map((t) => (
+        {ITEM_TYPES.filter((t) => t !== 'todo').map((t) => (
           <Row
             key={t}
             f={{ kind: 'type', type: t }}

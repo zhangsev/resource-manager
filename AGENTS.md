@@ -57,6 +57,21 @@ Windows 编译环境：Node 20+，Rust stable（rustup，MSVC 工具链），Vis
 
 开发时把数据放到别处，避免写进 `target/debug`：设置环境变量 `RESMANAGER_HOME=D:\tmp\resmanager-dev`。
 
+## 待验证改动（第四轮：待办 / 提醒 / 升级备份 / 使用说明，版本 0.3.0）
+
+需求见 SPEC 3（待办行）、4.2、4.5、4.8。版本号已改为 0.3.0（package.json、Cargo.toml、tauri.conf.json）。
+新增依赖：npm `@tauri-apps/plugin-notification`，cargo `tauri-plugin-notification`。
+新增：`src/lib/todo.ts`、`src/lib/guide.ts`（纯逻辑，已有测试）、`src/components/todo.tsx`、`src/views/Reminder.tsx`、tauri.conf 中 `reminder` 窗口（380×300，不抢焦点）。
+修改：types（todo 字段都在 `meta` 里，**没有数据库结构变更**）、quickparse（!/^ 语法，`buildQuickItem` 可能返回 null）、actions（ActionCtx）、services（提醒调度 15 秒一次、升级备份、使用说明）、platform（通用右下角窗口、notify、appVersion）、sqliteStore（结构迁移前备份）、MainWindow / Sidebar / ItemDetail / ItemEditor / QuickAdd / Launcher / rich / styles、capabilities（reminder 窗口、notification、app version）。
+云端已验证：32 项测试通过；浏览器预览中待办分组 / 勾选动画 / 子任务勾选保存 / 文本清单勾选 / 编辑表单 / 快速添加 `!高 ^周五 17:00` 自动切换待办 / 提醒窗口稍后 / 使用说明插入、浅深色均无报错。
+需要在 Windows 桌面版确认：
+1. **升级路径**：用 0.2.0 的数据目录（复制一份，别用真实数据）启动 0.3.0：`backup\upgrade-v…-to-v0.3.0-…db` 生成且可用 SQLite 打开；旧条目完好；出现置顶的「使用说明」；再次启动不重复备份、不重复插入说明
+2. **提醒**：建一个 2 分钟后到期的待办，等待：右下角提醒小窗弹出且不抢走当前输入焦点；系统通知出现；「10 分钟后」「完成」「打开」「×」行为正确；同一次不重复弹
+3. **离线到期**：设一个 1 分钟后到期的待办 → 退出程序 → 等过期后再启动：提醒小窗标题为「离线期间有 N 条待办到期」
+4. 快速添加：下拉框选择类型；`!高 ^周五 17:00` 识别提示正确；保存后待办出现在正确分组
+5. 125% / 150% 缩放下提醒小窗与快速添加小窗位置、尺寸正常（两者都在右下角，同时出现时会重叠，可接受）
+6. 记录 exe 体积变化
+
 ## 待验证改动（第三轮：链接 / Markdown / 代码高亮）
 
 需求见 SPEC 4.7。新增依赖 `marked`、`dompurify`、`highlight.js`（package.json 已写，需 `npm install` 更新 lock 文件）。

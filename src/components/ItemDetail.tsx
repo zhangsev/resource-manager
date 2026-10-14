@@ -8,6 +8,8 @@ import { TYPE_LABEL, type Item } from '../lib/types';
 import { ConfirmButton, Modal, ParamForm, TypeBadge, timeAgo } from './common';
 import { CodeView, LinkText, Markdown } from './rich';
 import { LANGS, commandLang } from '../lib/codelang';
+import { setDone, toggleTask } from '../lib/todo';
+import { TodoCheck, TodoMeta, useNow } from './todo';
 
 export function ItemDetail({
   item,
@@ -26,6 +28,16 @@ export function ItemDetail({
   const prim = primaryAction(item);
   const sec = secondaryAction(item);
   const m = item.meta;
+  const now = useNow();
+
+  /** click on a "- [ ]" box in rendered Markdown: flip it in the source and save */
+  const toggleIn = (field: 'content' | 'notes') => (index: number) => {
+    const src = field === 'content' ? item.content : m.notes ?? '';
+    const next = toggleTask(src, index);
+    if (next === src) return;
+    const updated = field === 'content' ? { ...item, content: next } : { ...item, meta: { ...m, notes: next } };
+    app.saveItem(updated).catch(toastError);
+  };
 
   const run = async (a: ActionDef | null, filled?: string) => {
     if (!a) return;
@@ -34,7 +46,7 @@ export function ItemDetail({
       return;
     }
     try {
-      const msg = await a.run(item, app.settings, filled);
+      const msg = await a.run(item, app.settings, filled, { saveItem: app.saveItem });
       setPending(null);
       toast(msg);
       await app.markUsed(item.id);
@@ -63,9 +75,18 @@ export function ItemDetail({
   return (
     <div className="detail">
       <div className="detail-head">
-        <TypeBadge type={item.type} />
+        {item.type === 'todo' ? (
+          <TodoCheck
+            size="lg"
+            done={!!m.done}
+            priority={m.priority}
+            onToggle={() => app.saveItem(setDone(item, !m.done, Date.now())).catch(toastError)}
+          />
+        ) : (
+          <TypeBadge type={item.type} />
+        )}
         <div className="grow">
-          <h2 className="detail-title">{item.title}</h2>
+          <h2 className={'detail-title' + (item.type === 'todo' && m.done ? ' todo-done-title' : '')}>{item.title}</h2>
           <div className="detail-meta">
             {TYPE_LABEL[item.type]}
             {item.folderId && <> · {folderPath(app.folders, item.folderId)}</>}
@@ -121,9 +142,21 @@ export function ItemDetail({
         </div>
       )}
 
-      {item.type === 'software' ? (
+      {item.type === 'todo' && <TodoMeta it={item} now={now} full />}
+
+      {item.type === 'todo' ? (
+        <div className="detail-body">
+          {item.content.trim() ? (
+            <div className="content-box prose">
+              <Markdown source={item.content} onToggleTask={toggleIn('content')} />
+            </div>
+          ) : (
+            <div className="muted small">没有子任务。编辑时在「子任务 / 备注」里写 - [ ] 即可添加。</div>
+          )}
+        </div>
+      ) : item.type === 'software' ? (
         <div className="kv">
-          {item.content && <Kv k="说明" v={<Markdown source={item.content} />} />}
+          {item.content && <Kv k="说明" v={<Markdown source={item.content} onToggleTask={toggleIn('content')} />} />}
           {m.website && (
             <Kv
               k="官网"
@@ -182,7 +215,7 @@ export function ItemDetail({
             </>
           ) : item.type === 'text' ? (
             <div className="content-box prose">
-              <Markdown source={item.content} />
+              <Markdown source={item.content} onToggleTask={toggleIn('content')} />
             </div>
           ) : item.type === 'link' ? (
             <div className="content-box mono">
@@ -200,7 +233,7 @@ export function ItemDetail({
           {m.notes && (
             <div className="notes">
               <div className="notes-title">备注</div>
-              <Markdown source={m.notes} />
+              <Markdown source={m.notes} onToggleTask={toggleIn('notes')} />
             </div>
           )}
         </div>

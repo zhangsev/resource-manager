@@ -7,7 +7,7 @@ import { buildTree, descendantIds, flattenTree, folderPath } from '../src/lib/fo
 import { mergeImport, parseImport, toExportJson, toMarkdown } from '../src/lib/exporter';
 import { compileIgnore, looksLikePassword, shouldRecordClip } from '../src/lib/clipfilter';
 import { parseSuggestion, suggestTitleAndTags } from '../src/lib/ai';
-import { buildQuickItem, matchFolder, parseMetaLine } from '../src/lib/quickparse';
+import { buildQuickItem, hasTodoTokens, matchFolder, parseMetaLine } from '../src/lib/quickparse';
 import { MemoryStore } from '../src/lib/store/memoryStore';
 import { DEFAULT_SETTINGS, blankItem, type Folder, type Item } from '../src/lib/types';
 
@@ -234,15 +234,15 @@ test('quick add: meta line parses title, #tags and @folder', () => {
 
 test('quick add: builds items with auto title', () => {
   const empty = parseMetaLine('', []);
-  const c = buildQuickItem('command', '  docker ps -a \n', empty);
+  const c = buildQuickItem('command', '  docker ps -a \n', empty)!;
   assert.equal(c.title, 'docker ps -a');
   assert.equal(c.content, 'docker ps -a');
-  const s = buildQuickItem('software', 'https://www.7-zip.org/download.html', parseMetaLine('7-Zip #压缩', []));
+  const s = buildQuickItem('software', 'https://www.7-zip.org/download.html', parseMetaLine('7-Zip #压缩', []))!;
   assert.equal(s.title, '7-Zip');
   assert.equal(s.meta.website, 'https://www.7-zip.org/download.html');
   assert.equal(s.content, '');
   assert.deepEqual(s.tags, ['压缩']);
-  assert.equal(buildQuickItem('software', 'https://www.7-zip.org/x', empty).title, '7-zip.org');
+  assert.equal(buildQuickItem('software', 'https://www.7-zip.org/x', empty)!.title, '7-zip.org');
 });
 
 // ---------------------------------------------------------------- links, languages, markdown
@@ -325,4 +325,179 @@ test('markdown: renders gfm, escapes raw html, guards links and images', () => {
   assert.ok(!html.includes('hl-mermaid'), 'unknown language is not highlighted');
   assert.equal((html.match(/class="code-copy"/g) ?? []).length, 3, 'every code block has a copy button');
   assert.ok(codeBlockHtml('<x>', null).includes('&lt;x&gt;'));
+});
+
+// ---------------------------------------------------------------- todo
+
+import {
+  dismiss, dueReminders, formatDue, ringing, formatDueFull, groupTodos, markNotified, parseDue, parsePriority, parseTime,
+  reminderTime, setDone, snooze, taskProgress, todoCounts, toggleTask,
+} from '../src/lib/todo';
+
+// Wed 2026-10-14 10:30 local time
+const NOW = new Date(2026, 9, 14, 10, 30).getTime();
+const at = (y: number, mo: number, d: number, h: number, mi = 0) => new Date(y, mo - 1, d, h, mi).getTime();
+
+test('todo: time and date parsing', () => {
+  assert.deepEqual(parseTime('17:00'), [17, 0]);
+  assert.deepEqual(parseTime('下午3点半'), [15, 30]);
+  assert.deepEqual(parseTime('晚上8点15'), [20, 15]);
+  assert.deepEqual(parseTime('9点'), [9, 0]);
+  assert.equal(parseTime('25:00'), null);
+  assert.equal(parseDue('明天', undefined, NOW)!.due, at(2026, 10, 15, 18));
+  assert.deepEqual(parseDue('周五', '17:00', NOW), { due: at(2026, 10, 16, 17), used: 2 });
+  assert.equal(parseDue('周三', undefined, NOW)!.due, at(2026, 10, 14, 18), 'same weekday = today');
+  assert.equal(parseDue('周一', undefined, NOW)!.due, at(2026, 10, 19, 18));
+  assert.equal(parseDue('下周一', '9:00', NOW)!.due, at(2026, 10, 19, 9));
+  assert.equal(parseDue('下周三', undefined, NOW)!.due, at(2026, 10, 21, 18));
+  assert.equal(parseDue('10-20', '9点', NOW)!.due, at(2026, 10, 20, 9));
+  assert.equal(parseDue('1-5', undefined, NOW)!.due, at(2027, 1, 5, 18), 'past month-day rolls to next year');
+  assert.equal(parseDue('2026-12-31', '23:59', NOW)!.due, at(2026, 12, 31, 23, 59));
+  assert.equal(parseDue('12月1日', undefined, NOW)!.due, at(2026, 12, 1, 18));
+  assert.equal(parseDue('明天17:00', undefined, NOW)!.due, at(2026, 10, 15, 17));
+  assert.equal(parseDue('周五下午3点', undefined, NOW)!.due, at(2026, 10, 16, 15));
+  assert.equal(parseDue('15:00', undefined, NOW)!.due, at(2026, 10, 14, 15));
+  assert.equal(parseDue('9:00', undefined, NOW)!.due, at(2026, 10, 15, 9), 'past time-only means tomorrow');
+  assert.equal(parseDue('', '16:00', NOW)!.due, at(2026, 10, 14, 16));
+  assert.equal(parseDue('2-30', undefined, NOW), null);
+  assert.equal(parseDue('随便', undefined, NOW), null);
+  assert.equal(parsePriority('!高'), 'high');
+  assert.equal(parsePriority('！低'), 'low');
+  assert.equal(parsePriority('!m'), 'mid');
+  assert.equal(parsePriority('!!'), null);
+});
+
+test('todo: formatting', () => {
+  assert.equal(formatDue(at(2026, 10, 14, 15), NOW), '今天 15:00');
+  assert.equal(formatDue(at(2026, 10, 15, 9), NOW), '明天 09:00');
+  assert.equal(formatDue(at(2026, 10, 13, 9), NOW), '昨天 09:00');
+  assert.equal(formatDue(at(2026, 10, 16, 17), NOW), '周五 17:00');
+  assert.equal(formatDue(at(2026, 11, 3, 8), NOW), '11-3 08:00');
+  assert.equal(formatDueFull(at(2026, 10, 16, 17)), '10-16 周五 17:00');
+});
+
+test('todo: grouping, sorting and counts', () => {
+  const t = (id: string, meta: object, created = 0) => blankItem('todo', { id, title: id, meta: meta as Item['meta'], createdAt: created });
+  const items = [
+    t('later', { due: at(2026, 10, 20, 9) }),
+    t('overdue', { due: at(2026, 10, 13, 9) }),
+    t('todayLow', { due: at(2026, 10, 14, 12), priority: 'low' }),
+    t('todayHigh', { due: at(2026, 10, 14, 17), priority: 'high' }),
+    t('earlierToday', { due: at(2026, 10, 14, 9) }),
+    t('tomorrow', { due: at(2026, 10, 15, 9) }),
+    t('nodate', {}),
+    t('done1', { done: true, doneAt: 5 }),
+    t('done2', { done: true, doneAt: 9 }),
+    blankItem('text', { id: 'not-a-todo' }),
+  ];
+  const groups = groupTodos(items, NOW);
+  assert.deepEqual(groups.map((g) => g.group), ['overdue', 'today', 'tomorrow', 'later', 'nodate', 'done']);
+  assert.deepEqual(groups[0].items.map((i) => i.id), ['overdue', 'earlierToday'], 'earlier today already passed = overdue');
+  assert.deepEqual(groups[1].items.map((i) => i.id), ['todayHigh', 'todayLow'], 'priority first');
+  assert.deepEqual(groups[5].items.map((i) => i.id), ['done2', 'done1'], 'recently done first');
+  assert.deepEqual(todoCounts(items, NOW), { open: 7, overdue: 2 });
+  const d = setDone(items[0], true, NOW);
+  assert.equal(d.meta.done, true);
+  assert.equal(d.meta.doneAt, NOW);
+  assert.equal(setDone(d, false, NOW).meta.doneAt, null);
+});
+
+test('todo: offline classification includes reminders overdue by less than a minute', async () => {
+  const { hasOfflineReminders } = await import('../src/lib/todo');
+  const item = blankItem('todo', { meta: { due: NOW - 5000, remindBefore: 0 } });
+  assert.equal(hasOfflineReminders([item], NOW), true);
+  assert.equal(hasOfflineReminders([{ ...item, meta: { ...item.meta, due: NOW } }], NOW), false);
+  assert.equal(hasOfflineReminders([snooze(item, 10, NOW)], NOW), false);
+  assert.equal(hasOfflineReminders([setDone(item, true, NOW)], NOW), false);
+});
+
+test('todo: reminders fire once, snooze, offline', () => {
+  const due = at(2026, 10, 14, 11);
+  const a = blankItem('todo', { id: 'a', meta: { due, remindBefore: 60 } }); // remind 10:00 -> due now
+  const b = blankItem('todo', { id: 'b', meta: { due, remindBefore: 15 } }); // 10:45 -> not yet
+  const c = blankItem('todo', { id: 'c', meta: { due } }); // no reminder
+  const d = blankItem('todo', { id: 'd', meta: { due: at(2026, 10, 10, 9), remindBefore: 0, done: true } });
+  assert.equal(reminderTime(a), at(2026, 10, 14, 10));
+  assert.equal(reminderTime(c), null);
+  assert.deepEqual(dueReminders([a, b, c, d], NOW).map((i) => i.id), ['a']);
+  const shown = markNotified(a);
+  assert.deepEqual(dueReminders([shown], NOW), [], 'not repeated');
+  const later = snooze(shown, 10, NOW);
+  assert.deepEqual(dueReminders([later], NOW + 5 * 60000), []);
+  assert.deepEqual(dueReminders([later], NOW + 10 * 60000).map((i) => i.id), ['a'], 'snoozed fires again');
+  const offline = blankItem('todo', { id: 'o', meta: { due: at(2026, 10, 12, 9), remindBefore: 0 } });
+  assert.deepEqual(dueReminders([offline], NOW).map((i) => i.id), ['o'], 'missed while app was closed still shows');
+});
+
+test('todo: sub-task progress and toggling skip code fences', () => {
+  const src = ['- [ ] 一', '- [x] 二', '```', '- [ ] 代码里的不算', '```', '  * [ ] 三', '1. [X] 四', '> - [ ] 引用里', '- [] 不是任务'].join('\n');
+  assert.deepEqual(taskProgress(src), { done: 2, total: 5 });
+  const t0 = toggleTask(src, 0);
+  assert.ok(t0.startsWith('- [x] 一'));
+  const t2 = toggleTask(src, 2);
+  assert.ok(t2.includes('  * [x] 三'));
+  assert.ok(t2.includes('- [ ] 代码里的不算'));
+  assert.ok(toggleTask(src, 3).includes('1. [ ] 四'));
+  assert.equal(toggleTask(src, 99), src);
+  const html = createMarkdown()(src);
+  assert.equal((html.match(/data-task="/g) ?? []).length, 5, 'renderer numbers the same tasks');
+  assert.ok(html.includes('data-task="1" checked'));
+});
+
+test('quick add: todo shortcut syntax', () => {
+  const m = parseMetaLine('交周报 !高 ^周五 17:00 #工作', [], NOW);
+  assert.equal(m.title, '交周报');
+  assert.equal(m.priority, 'high');
+  assert.equal(m.due, at(2026, 10, 16, 17));
+  assert.deepEqual(m.tags, ['工作']);
+  assert.ok(hasTodoTokens(m));
+  assert.equal(parseMetaLine('买菜 ^明天', [], NOW).due, at(2026, 10, 15, 18));
+  assert.equal(parseMetaLine('开会 ^ 16:00', [], NOW).due, at(2026, 10, 14, 16));
+  assert.equal(parseMetaLine('开会 ^下午3点', [], NOW).due, at(2026, 10, 14, 15));
+  const bad = parseMetaLine('x ^某天', [], NOW);
+  assert.equal(bad.due, null);
+  assert.equal(bad.dueError, '某天');
+  assert.equal(bad.title, 'x');
+  assert.ok(!hasTodoTokens(parseMetaLine('普通标题 #a', [], NOW)));
+
+  const t = buildQuickItem('todo', '- [ ] 写初稿\n- [ ] 发给老板', m)!;
+  assert.equal(t.type, 'todo');
+  assert.equal(t.title, '交周报');
+  assert.equal(t.meta.priority, 'high');
+  assert.equal(t.meta.remindBefore, 0, 'with a due time, remind on time by default');
+  assert.ok(t.content.includes('发给老板'));
+  const t2 = buildQuickItem('todo', '整理桌面\n- [ ] 扔垃圾', parseMetaLine('', [], NOW))!;
+  assert.equal(t2.title, '整理桌面');
+  assert.equal(t2.content, '- [ ] 扔垃圾');
+  assert.equal(t2.meta.remindBefore, null);
+  assert.equal(buildQuickItem('todo', '', parseMetaLine('', [], NOW)), null);
+  assert.equal(buildQuickItem('text', '  ', parseMetaLine('标题', [], NOW)), null);
+});
+
+test('todo: ringing reminders until done, snoozed or dismissed', () => {
+  const a = markNotified(blankItem('todo', { id: 'a', meta: { due: at(2026, 10, 14, 10), remindBefore: 0 } }));
+  assert.deepEqual(ringing([a], NOW).map((i) => i.id), ['a']);
+  assert.deepEqual(ringing([dismiss(a)], NOW), []);
+  assert.deepEqual(ringing([setDone(a, true, NOW)], NOW), []);
+  assert.deepEqual(ringing([snooze(a, 10, NOW)], NOW), [], 'snoozed: no longer ringing');
+  const fresh = blankItem('todo', { id: 'f', meta: { due: at(2026, 10, 14, 10), remindBefore: 0 } });
+  assert.deepEqual(ringing([fresh], NOW), [], 'not shown yet: scheduler fires it first');
+});
+
+// ---------------------------------------------------------------- built-in guide
+
+import { GUIDE_ID, GUIDE_TEXT, GUIDE_VERSION, guideItem, guideUpdate } from '../src/lib/guide';
+
+test('guide: inserted once, refreshed only when unedited, respects deletion', () => {
+  const g = guideUpdate(undefined, 0, 1000)!;
+  assert.equal(g.id, GUIDE_ID);
+  assert.equal(g.meta.guideVersion, GUIDE_VERSION);
+  assert.equal(guideUpdate(undefined, GUIDE_VERSION), null, 'deleted by the user: not re-added for the same version');
+  assert.equal(guideUpdate(g, 0), null, 'already current');
+  const old = { ...guideItem(5), meta: { guideVersion: 0 } };
+  assert.equal(guideUpdate(old, 0, 9)!.meta.guideVersion, GUIDE_VERSION, 'unedited old copy is refreshed');
+  const edited = { ...old, updatedAt: 7 };
+  assert.equal(guideUpdate(edited, 0, 9), null, 'edited copy is left alone');
+  assert.ok(GUIDE_TEXT.includes('`data\\`'), 'windows path renders with one backslash');
+  assert.ok(GUIDE_TEXT.includes('^周五 17:00'));
 });

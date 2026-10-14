@@ -6,6 +6,7 @@ import { broadcast, copyText, hideCurrentWindow, isTauri, onWindowFocus, showWin
 import { rank } from '../lib/search';
 import { EV_LAUNCHER_OPEN, openQuickAdd } from '../lib/services';
 import { TYPE_LABEL, type Clip, type Item } from '../lib/types';
+import { PRIORITY_LABEL, formatDue, taskProgress } from '../lib/todo';
 import { Kbd, ParamForm, TypeBadge, timeAgo } from '../components/common';
 
 export const EV_FOCUS_ITEM = 'resmanager://focus-item';
@@ -82,7 +83,7 @@ export function Launcher() {
       return;
     }
     try {
-      const msg = await action.run(item, app.settings, filled);
+      const msg = await action.run(item, app.settings, filled, { saveItem: app.saveItem });
       setPending(null);
       app.markUsed(item.id).catch(() => {});
       await finish(msg);
@@ -310,12 +311,26 @@ export function Launcher() {
   );
 }
 
+function todoLine(it: Item): string {
+  const m = it.meta;
+  const p = taskProgress(it.content);
+  return [
+    m.done ? '已完成' : m.due ? formatDue(m.due, Date.now()) : '无日期',
+    m.priority && `优先级 ${PRIORITY_LABEL[m.priority]}`,
+    p.total && `子任务 ${p.done}/${p.total}`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
 function oneLine(it: Item): string {
+  if (it.type === 'todo') return todoLine(it);
   if (it.type === 'software') return [it.meta.version && 'v' + it.meta.version, it.meta.website, it.content].filter(Boolean).join(' · ');
   return it.content.replace(/\s+/g, ' ').slice(0, 140);
 }
 
 function previewText(it: Item): string {
+  if (it.type === 'todo') return [todoLine(it), it.content].filter(Boolean).join('\n\n');
   if (it.type === 'software') {
     const m = it.meta;
     return [

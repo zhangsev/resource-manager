@@ -105,7 +105,11 @@ export class SqliteStore implements Store {
   readonly kind = 'sqlite' as const;
   private db!: Database;
 
-  constructor(private dbPath: string) {}
+  /** @param backupDir where to put a safety copy before running schema migrations on existing data */
+  constructor(
+    private dbPath: string,
+    private backupDir?: string,
+  ) {}
 
   async init(): Promise<void> {
     // tauri-plugin-sql joins the part after "sqlite:" onto the app config dir;
@@ -116,6 +120,12 @@ export class SqliteStore implements Store {
     await this.db.execute('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)');
     const rows = await this.db.select<{ version: number }[]>('SELECT version FROM schema_version LIMIT 1');
     let current = rows.length ? Number(rows[0].version) : 0;
+    if (current > 0 && current < SCHEMA_VERSION && this.backupDir) {
+      // existing data is about to be migrated: keep a copy (not matched by daily pruning)
+      const sep = this.backupDir.includes('\\') ? '\\' : '/';
+      const ts = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+      await this.backupTo(`${this.backupDir.replace(/[\\/]+$/, '')}${sep}upgrade-schema${current}-to-${SCHEMA_VERSION}-${ts}.db`);
+    }
     while (current < SCHEMA_VERSION) {
       for (const sql of MIGRATIONS[current]) await this.db.execute(sql);
       current++;

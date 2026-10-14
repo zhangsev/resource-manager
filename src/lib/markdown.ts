@@ -11,6 +11,7 @@ import { isSafeHref, toHref } from './linkify';
  *  - links keep only http/https/mailto; clicks are intercepted by the UI and opened in the system browser
  *  - remote images are NOT loaded (privacy on company machines): rendered as a link instead
  *  - fenced code is highlighted only when the fence names a language; every block gets a copy button
+ *  - task-list checkboxes carry data-task="n" (source order) so the UI can toggle them
  */
 
 export type Highlighter = (code: string, lang: string) => string;
@@ -34,8 +35,13 @@ export function codeBlockHtml(code: string, lang: string | null, highlight?: Hig
 
 export function createMarkdown(highlight?: Highlighter) {
   const md = new Marked({ gfm: true, breaks: true, async: false });
+  // task-list checkboxes are numbered in source order so a click can be mapped back (todo.ts toggleTask)
+  let taskIndex = 0;
   md.use({
     renderer: {
+      checkbox({ checked }: Tokens.Checkbox) {
+        return `<input type="checkbox" class="task-box" data-task="${taskIndex++}"${checked ? ' checked' : ''}> `;
+      },
       html({ text }: Tokens.HTML | Tokens.Tag) {
         return escapeHtml(text);
       },
@@ -62,5 +68,8 @@ export function createMarkdown(highlight?: Highlighter) {
       },
     },
   });
-  return (src: string): string => md.parse(src ?? '') as string;
+  return (src: string): string => {
+    taskIndex = 0;
+    return md.parse(src ?? '') as string;
+  };
 }

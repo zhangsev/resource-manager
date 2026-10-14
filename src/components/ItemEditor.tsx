@@ -9,6 +9,7 @@ import { ITEM_TYPES, TYPE_LABEL, type Item, type ItemType } from '../lib/types';
 import { TagInput, TypeBadge } from './common';
 import { MarkdownField } from './rich';
 import { LANGS, detectLang } from '../lib/codelang';
+import { PRIORITY_LABEL, REMIND_OPTIONS, fromLocalInput, toLocalInput } from '../lib/todo';
 
 const CONTENT_LABEL: Record<ItemType, string> = {
   command: '命令',
@@ -16,6 +17,7 @@ const CONTENT_LABEL: Record<ItemType, string> = {
   link: '网址',
   software: '说明 / 用途',
   file: '文件路径',
+  todo: '子任务 / 备注',
 };
 
 const CONTENT_PLACEHOLDER: Record<ItemType, string> = {
@@ -24,6 +26,7 @@ const CONTENT_PLACEHOLDER: Record<ItemType, string> = {
   link: 'https://',
   software: '这个软件是干什么的、怎么配置……',
   file: 'D:\\docs\\周报模板.docx',
+  todo: '- [ ] 第一步\n- [ ] 第二步\n\n其他备注……',
 };
 
 export function ItemEditor({
@@ -64,12 +67,16 @@ export function ItemEditor({
   const setContent = (content: string) => {
     setIt((cur) => {
       const next = { ...cur, content };
-      if (!titleTouched.current) next.title = autoTitle(content, cur.type);
+      if (!titleTouched.current && cur.type !== 'todo') next.title = autoTitle(content, cur.type);
       return next;
     });
   };
 
   const submit = async () => {
+    if (it.type === 'todo' && !it.title.trim()) {
+      toast('请填写待办事项', 'error');
+      return;
+    }
     const title = it.title.trim() || autoTitle(it.content, it.type) || (it.type === 'software' ? '未命名软件' : '');
     if (!title && !it.content.trim()) {
       toast('内容不能为空', 'error');
@@ -147,14 +154,83 @@ export function ItemEditor({
         ))}
       </div>
 
-      {(it.type === 'text' || it.type === 'software') && (
+      {it.type === 'todo' && (
+        <>
+          <label className="field">
+            <span>待办事项</span>
+            <input
+              ref={(el) => {
+                firstRef.current = el;
+              }}
+              className="todo-title-input"
+              value={it.title}
+              placeholder="要做什么？"
+              onChange={(e) => {
+                titleTouched.current = true;
+                set({ title: e.target.value });
+              }}
+            />
+          </label>
+          <div className="row gap todo-fields">
+            <label className="field">
+              <span>截止时间</span>
+              <div className="row gap-s">
+                <input
+                  type="datetime-local"
+                  value={toLocalInput(it.meta.due)}
+                  onChange={(e) => {
+                    const due = fromLocalInput(e.target.value);
+                    setMeta({ due, notifiedAt: null, snoozeUntil: null, remindBefore: due && it.meta.remindBefore === undefined ? 0 : it.meta.remindBefore });
+                  }}
+                />
+                {it.meta.due && (
+                  <button type="button" className="btn small" onClick={() => setMeta({ due: null, notifiedAt: null })}>
+                    清除
+                  </button>
+                )}
+              </div>
+            </label>
+            <label className="field">
+              <span>优先级</span>
+              <select value={it.meta.priority ?? ''} onChange={(e) => setMeta({ priority: (e.target.value || undefined) as Item['meta']['priority'] })}>
+                <option value="">无</option>
+                {(['high', 'mid', 'low'] as const).map((p) => (
+                  <option key={p} value={p}>
+                    {PRIORITY_LABEL[p]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>提醒</span>
+              <select
+                disabled={!it.meta.due}
+                value={it.meta.remindBefore === null || it.meta.remindBefore === undefined ? '' : String(it.meta.remindBefore)}
+                onChange={(e) => setMeta({ remindBefore: e.target.value === '' ? null : Number(e.target.value), notifiedAt: null })}
+              >
+                {REMIND_OPTIONS.map((o) => (
+                  <option key={o.label} value={o.value === null ? '' : String(o.value)}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </>
+      )}
+
+      {(it.type === 'text' || it.type === 'software' || it.type === 'todo') && (
         <div className="field">
           <span>{CONTENT_LABEL[it.type]}</span>
           <MarkdownField
-            inputRef={(el) => {
-              firstRef.current = el;
-            }}
-            rows={it.type === 'text' ? (compact ? 6 : 10) : 3}
+            inputRef={
+              it.type === 'todo'
+                ? undefined
+                : (el) => {
+                    firstRef.current = el;
+                  }
+            }
+            rows={it.type === 'text' ? (compact ? 6 : 10) : it.type === 'todo' ? 5 : 3}
             value={it.content}
             placeholder={CONTENT_PLACEHOLDER[it.type]}
             onChange={setContent}
@@ -162,7 +238,7 @@ export function ItemEditor({
         </div>
       )}
 
-      {it.type !== 'text' && it.type !== 'software' && (
+      {it.type !== 'text' && it.type !== 'software' && it.type !== 'todo' && (
       <label className="field">
         <span>{CONTENT_LABEL[it.type]}</span>
         {it.type === 'command' ? (
@@ -226,6 +302,7 @@ export function ItemEditor({
       )}
 
       <div className="row gap">
+        {it.type !== 'todo' && (
         <label className="field grow">
           <span>标题</span>
           <input
@@ -237,7 +314,8 @@ export function ItemEditor({
             }}
           />
         </label>
-        <label className="field folder-field">
+        )}
+        <label className={'field folder-field' + (it.type === 'todo' ? ' grow' : '')}>
           <span>文件夹</span>
           <select value={it.folderId ?? ''} onChange={(e) => set({ folderId: e.target.value || null })}>
             <option value="">未分类</option>
@@ -307,9 +385,21 @@ export function ItemEditor({
       </label>
 
       <div className="row between editor-foot">
-        <label className="check">
-          <input type="checkbox" checked={it.pinned} onChange={(e) => set({ pinned: e.target.checked })} /> 置顶
-        </label>
+        <div className="row gap">
+          <label className="check">
+            <input type="checkbox" checked={it.pinned} onChange={(e) => set({ pinned: e.target.checked })} /> 置顶
+          </label>
+          {it.type === 'todo' && (
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={!!it.meta.done}
+                onChange={(e) => setMeta({ done: e.target.checked, doneAt: e.target.checked ? Date.now() : null })}
+              />{' '}
+              已完成
+            </label>
+          )}
+        </div>
         <div className="row gap-s">
           {aiReady(settings) && (
             <button type="button" className="btn" disabled={aiBusy} onClick={runAi}>

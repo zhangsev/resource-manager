@@ -61,7 +61,7 @@ function normalizeItem(raw: Partial<Item>): Item {
   const now = Date.now();
   return {
     id: String(raw.id),
-    type: (['command', 'text', 'link', 'software', 'file'] as const).includes(raw.type as never)
+    type: (['command', 'text', 'link', 'software', 'file', 'todo'] as const).includes(raw.type as never)
       ? (raw.type as Item['type'])
       : 'text',
     title: String(raw.title ?? ''),
@@ -93,7 +93,12 @@ export function toMarkdown(items: Item[], folders: Folder[], includeSecrets = fa
       const tagStr = it.tags.length ? ' · ' + it.tags.map((t) => '#' + t).join(' ') : '';
       lines.push(`*${TYPE_LABEL[it.type]}*${tagStr}`, '');
       const m = it.meta || {};
-      if (it.type === 'command') lines.push(fence(it.content, 'bash'));
+      if (it.type === 'todo') {
+        const due = m.due ? ` · 截止 ${fmtDate(m.due)}` : '';
+        const pr = m.priority ? ` · 优先级 ${{ high: '高', mid: '中', low: '低' }[m.priority]}` : '';
+        lines.push(`- [${m.done ? 'x' : ' '}] ${it.title}${due}${pr}`);
+        if (it.content) lines.push('', it.content);
+      } else if (it.type === 'command') lines.push(fence(it.content, 'bash'));
       else if (it.type === 'link') lines.push(`<${it.content}>`);
       else if (it.type === 'file') lines.push('`' + it.content + '`');
       else if (it.content) lines.push(it.content);

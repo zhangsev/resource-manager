@@ -129,6 +129,10 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
               <option value="powershell">PowerShell</option>
             </select>
           </label>
+          <label className="check span2">
+            <input type="checkbox" checked={s.todoSystemNotify} onChange={(e) => set({ todoSystemNotify: e.target.checked })} />
+            待办到期时同时发送 Windows 系统通知（右下角提醒小窗始终会弹出）
+          </label>
           <label className="field">
             <span>主题</span>
             <select value={s.theme} onChange={(e) => set({ theme: e.target.value as Settings['theme'] })}>

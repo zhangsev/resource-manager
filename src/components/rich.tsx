@@ -38,10 +38,24 @@ export function LinkText({ text, className = '' }: { text: string; className?: s
 }
 
 /** Rendered Markdown (sanitized). Links open externally; code blocks have a copy button. */
-export function Markdown({ source, className = '' }: { source: string; className?: string }) {
+export function Markdown({
+  source,
+  className = '',
+  onToggleTask,
+}: {
+  source: string;
+  className?: string;
+  /** when given, task-list checkboxes are clickable; receives the task index in source order */
+  onToggleTask?: (index: number) => void;
+}) {
   const html = useMemo(() => renderMarkdown(source), [source]);
   const onClick = (e: MouseEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
+    if (target instanceof HTMLInputElement && target.classList.contains('task-box')) {
+      e.preventDefault(); // state comes from the source, re-rendered after saving
+      if (onToggleTask) onToggleTask(Number(target.dataset.task));
+      return;
+    }
     const btn = target.closest('.code-copy');
     if (btn) {
       e.preventDefault();
@@ -57,7 +71,13 @@ export function Markdown({ source, className = '' }: { source: string; className
       openExternal(a.getAttribute('href') ?? '');
     }
   };
-  return <div className={'md ' + className} onClick={onClick} dangerouslySetInnerHTML={{ __html: html }} />;
+  return (
+    <div
+      className={'md ' + (onToggleTask ? 'tasks-live ' : '') + className}
+      onClick={onClick}
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
 }
 
 /** Highlighted code (command items). */

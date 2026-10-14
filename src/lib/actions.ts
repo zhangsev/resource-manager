@@ -1,11 +1,17 @@
 import { parseParams } from './params';
 import { copyText, openPath, openUrl, revealPath, runInTerminal } from './platform';
+import { setDone } from './todo';
 import type { Item, Settings } from './types';
+
+/** What an action may need from the app besides the item (todo actions save). */
+export interface ActionCtx {
+  saveItem: (item: Item) => Promise<unknown>;
+}
 
 export interface ActionDef {
   label: string;
   /** returns the toast text */
-  run: (item: Item, s: Settings, filledCommand?: string) => Promise<string>;
+  run: (item: Item, s: Settings, filledCommand?: string, ctx?: ActionCtx) => Promise<string>;
   /** command with {{params}}: UI must ask for values first */
   needsParams?: boolean;
 }
@@ -14,8 +20,22 @@ function commandText(item: Item, filled?: string) {
   return filled ?? item.content;
 }
 
+function todoToggle(item: Item): ActionDef {
+  const done = !!item.meta.done;
+  return {
+    label: done ? '标记未完成' : '标记完成',
+    run: async (it, _s, _f, ctx) => {
+      if (!ctx) throw new Error('无法保存');
+      await ctx.saveItem(setDone(it, !it.meta.done, Date.now()));
+      return it.meta.done ? '已重新打开' : '已完成 ✓';
+    },
+  };
+}
+
 export function primaryAction(item: Item): ActionDef | null {
   switch (item.type) {
+    case 'todo':
+      return todoToggle(item);
     case 'command':
       return {
         label: '复制',
@@ -78,6 +98,16 @@ export function primaryAction(item: Item): ActionDef | null {
 
 export function secondaryAction(item: Item): ActionDef | null {
   switch (item.type) {
+    case 'todo':
+      return item.content.trim()
+        ? {
+            label: '复制子任务/备注',
+            run: async (it) => {
+              await copyText(it.content);
+              return '已复制';
+            },
+          }
+        : null;
     case 'command':
       return {
         label: '在终端执行',

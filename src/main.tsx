@@ -5,6 +5,7 @@ import { currentView } from './lib/platform';
 import { Launcher } from './views/Launcher';
 import { MainWindow } from './views/MainWindow';
 import { QuickAdd } from './views/QuickAdd';
+import { Reminder } from './views/Reminder';
 import './styles.css';
 
 const view = currentView();
@@ -36,7 +37,7 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <AppProvider primary={view === 'main'}>
       <ThemeSync />
-      {view === 'launcher' ? <Launcher /> : view === 'quickadd' ? <QuickAdd /> : <MainWindow />}
+      {view === 'launcher' ? <Launcher /> : view === 'quickadd' ? <QuickAdd /> : view === 'reminder' ? <Reminder /> : <MainWindow />}
       <Toasts />
     </AppProvider>
   </StrictMode>,

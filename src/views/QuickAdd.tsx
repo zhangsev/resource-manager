@@ -3,14 +3,15 @@ import { toastError, useApp } from '../lib/app';
 import { detectType } from '../lib/detect';
 import { folderPath } from '../lib/folders';
 import { broadcast, hideCurrentWindow, isTauri, onWindowFocus, showWindow, subscribe } from '../lib/platform';
-import { buildQuickItem, parseMetaLine } from '../lib/quickparse';
+import { buildQuickItem, hasTodoTokens, parseMetaLine } from '../lib/quickparse';
+import { PRIORITY_LABEL, formatDueFull } from '../lib/todo';
 import { EV_EDIT_DRAFT, EV_QUICKADD_OPEN } from '../lib/services';
 import { ITEM_TYPES, TYPE_LABEL, blankItem, type ItemType } from '../lib/types';
 import { Kbd, TypeBadge } from '../components/common';
 
 /**
  * Minimal quick-add bar (bottom-right of the screen): one content box + one optional
- * "meta" line (title #tag @folder). It does NOT read the clipboard.
+ * "meta" line (title #tag @folder, and for todos !priority ^due). It does NOT read the clipboard.
  * Enter saves, Esc discards the draft, clicking elsewhere only hides it (draft kept).
  * Ctrl+E hands the draft to the main window's full editor.
  */
@@ -21,6 +22,16 @@ const CONTENT_HINT: Record<ItemType, string> = {
   link: '网址',
   software: '软件说明，或粘贴官网地址',
   file: '文件或文件夹路径',
+  todo: '要做什么？（第二行可加 !高 ^周五 17:00）后面几行可写 - [ ] 子任务',
+};
+
+const META_HINT: Record<ItemType, string> = {
+  command: '标题（可不填）  #标签  @文件夹',
+  text: '标题（可不填）  #标签  @文件夹',
+  link: '标题（可不填）  #标签  @文件夹',
+  software: '标题（可不填）  #标签  @文件夹',
+  file: '标题（可不填）  #标签  @文件夹',
+  todo: '标题  !高/中/低  ^明天 9:00  #标签  @文件夹',
 };
 
 export function QuickAdd() {
@@ -81,17 +92,20 @@ export function QuickAdd() {
   };
 
   const cycleType = (dir = 1) => {
-    const i = ITEM_TYPES.indexOf(type);
+    const i = ITEM_TYPES.indexOf(effType);
     setType(ITEM_TYPES[(i + dir + ITEM_TYPES.length) % ITEM_TYPES.length]);
     setTypeTouched(true);
   };
 
   const meta = useMemo(() => parseMetaLine(metaLine, app.folders), [metaLine, app.folders]);
+  /** writing !高 or ^明天 switches to 待办 unless the user picked a type explicitly */
+  const effType: ItemType = !typeTouched && hasTodoTokens(meta) ? 'todo' : type;
   const dup = useMemo(() => {
     const t = content.trim();
-    return t ? app.items.find((i) => i.content.trim() === t || i.meta.website === t) ?? null : null;
-  }, [content, app.items]);
-  const preview = content.trim() ? buildQuickItem(type, content, meta) : null;
+    if (!t || effType === 'todo') return null;
+    return app.items.find((i) => i.content.trim() === t || i.meta.website === t) ?? null;
+  }, [content, app.items, effType]);
+  const preview = buildQuickItem(effType, content, meta);
 
   /** hide but keep the draft */
   const hide = async () => {
@@ -121,7 +135,7 @@ export function QuickAdd() {
   };
 
   const expand = async () => {
-    const draft = preview ?? blankItem(type, { tags: meta.tags, folderId: meta.folderId, title: meta.title });
+    const draft = preview ?? blankItem(effType, { tags: meta.tags, folderId: meta.folderId, title: meta.title });
     await showWindow('main');
     await broadcast(EV_EDIT_DRAFT, draft);
     reset();
@@ -148,14 +162,27 @@ export function QuickAdd() {
     }
   };
 
-  const mono = type === 'command' || type === 'file';
+  const mono = effType === 'command' || effType === 'file';
 
   return (
     <div className="qa" onKeyDown={onKey}>
       <div className="qa-bar" data-tauri-drag-region>
-        <button className="qa-type" onClick={() => cycleType()} title="切换类型（Ctrl+T）">
-          <TypeBadge type={type} size="sm" /> {TYPE_LABEL[type]} <span className="qa-caret">▾</span>
-        </button>
+        <label className="qa-type" title="类型（Ctrl+T 切换）">
+          <TypeBadge type={effType} size="sm" />
+          <select
+            value={effType}
+            onChange={(e) => {
+              setType(e.target.value as ItemType);
+              setTypeTouched(true);
+            }}
+          >
+            {ITEM_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {TYPE_LABEL[t]}
+              </option>
+            ))}
+          </select>
+        </label>
         <span className="qa-status" data-tauri-drag-region>
           {flash ? (
             <span className="flash">✓ {flash}</span>
@@ -177,7 +204,7 @@ export function QuickAdd() {
         ref={contentRef}
         className={'qa-content' + (mono ? ' mono' : '')}
         value={content}
-        placeholder={CONTENT_HINT[type]}
+        placeholder={CONTENT_HINT[effType]}
         onChange={(e) => onContent(e.target.value)}
         spellCheck={false}
         autoFocus
@@ -186,12 +213,17 @@ export function QuickAdd() {
         ref={metaRef}
         className="qa-meta"
         value={metaLine}
-        placeholder="标题（可不填）  #标签  @文件夹"
+        placeholder={META_HINT[effType]}
         onChange={(e) => setMetaLine(e.target.value)}
         spellCheck={false}
       />
-      {(meta.tags.length > 0 || meta.folderQuery) && (
+      {(meta.tags.length > 0 || meta.folderQuery || (effType === 'todo' && hasTodoTokens(meta))) && (
         <div className="qa-chips">
+          {effType === 'todo' && meta.due && <span className="qa-due">⏰ {formatDueFull(meta.due)}</span>}
+          {effType === 'todo' && meta.priority && (
+            <span className={'prio-chip p-' + meta.priority}>{PRIORITY_LABEL[meta.priority]}</span>
+          )}
+          {meta.dueError && <span className="qa-warn">无法识别时间「{meta.dueError}」</span>}
           {meta.tags.map((t) => (
             <span key={t} className="tag small">
               #{t}

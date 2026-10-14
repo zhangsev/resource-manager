@@ -218,3 +218,77 @@ npx tauri build --no-bundle
 - 下载的 `SHA256SUMS.txt` 自身 SHA256 为 `53773E9C9F6B67C5F7DF3075D67843FE7BEED417B31DE9CA42DD3C27940AC415`，与本地一致；其中记录的 ZIP 哈希和文件名也与下载文件匹配。
 - 再读取下载 ZIP 内的 exe，SHA256 为 `A8BB3A078D7685ED22F39956683EA0002A820C9052F73DCBE37F1A1E598052D3`，与本次构建的 0.2.0 exe 一致。
 - 公开直链：https://github.com/zhangsev/resource-manager/releases/download/v0.2.0/ResManager-portable.zip 。解压后运行，无需自行编译。
+
+## 第四轮：待办 / 提醒 / 升级备份 / 使用说明（2026-10-15，0.3.0）
+
+### 安装、工具链与最终测试
+
+已阅读 AGENTS.md 第四轮清单及 SPEC 4.2 / 4.5 / 4.8。保留用户已有第四轮实现和版本号，不改变数据结构或 Store 架构。本轮不发布 Release、不打包、不提交或推送。
+
+沿用本文工具链：
+
+```powershell
+$env:CARGO_HOME = Join-Path $PWD '.build-tools/cargo'
+$env:RUSTUP_HOME = Join-Path $PWD '.build-tools/rustup'
+$env:PATH = "$env:CARGO_HOME/bin;$env:PATH"
+npm install
+npm test
+npm run typecheck
+cargo test --lib --manifest-path src-tauri/Cargo.toml
+npx tauri build --no-bundle
+```
+
+- 首次安装成功；前端 32/32、类型检查、Rust 8/8 均通过，没有类型或 Rust API 编译错误。
+- 首次 Tauri 构建被通知插件版本检查阻止：npm 自动解析为 2.7.0，Rust 为 2.5.0。把 npm 范围由 `^2.2.0` 收紧为 `~2.5.0`，实际安装 **@tauri-apps/plugin-notification 2.5.1**，与 **tauri-plugin-notification 2.5.0** 的主/次版本一致。同步更新 npm/Cargo lock；Cargo 新增 4 个通知相关包，没有批量升级已有依赖。
+- 每轮修复后均重跑前端和 Rust 测试；最终完整顺序测试为 **npm test 33/33、typecheck 无错误、Rust 9/9、release exe 构建成功**。
+- 保留原有非阻断警告：`.app` identifier、Vite 大 chunk、MSVC linker_messages。最终主 JS 803.49 kB（gzip 300.14 kB）。
+
+### 最小修复
+
+1. **依赖版本对齐**：仅收紧新增通知插件的 npm 版本范围并更新锁文件。
+2. **离线标题**：`services.ts` 原先要求提醒时间早于启动时间至少一分钟，导致刚过期便重启时标题错误。改为首次调度时判断提醒时间是否早于启动时间；纯逻辑放入 `todo.ts` 的 `hasOfflineReminders`，增加「仅过期 5 秒」及边界/稍后/完成状态的回归测试。运行中新增的过期任务不被标为离线提醒。
+3. **Windows 无焦点弹窗**：`focus: false` 仅约束初始创建，Tao 后续 `show()` 使用 `SW_SHOW`。新增仅针对应用自身 reminder 窗口的 Rust `set_reminder_visible` 命令，由 `helpers.rs` 使用 `SW_SHOWNOACTIVATE` / `SW_HIDE` 成对显示隐藏；`lib.rs` 仅取得 HWND 和注册命令，`platform.ts` 保持唯一系统调用出口。关闭窗口事件也走相同隐藏路径。没有增加 Windows 依赖或修改系统焦点/安全设置；提醒仍可由用户主动点击。新增空 HWND 拒绝测试。
+4. **首次 DPI 尺寸**：隐藏窗口首次显示时原生边框会再次调整尺寸；在显示后补做一次现有右下角定位/尺寸设置，并避免对提醒调用 `unminimize()`。修复前 150% 冷启动提醒截图为 383×331，最终为 383×303（均含边框）。
+
+### 数据隔离与升级路径
+
+- 所有桌面测试均显式设置 `RESMANAGER_HOME`；从未以真实数据目录启动测试版。
+- 先将历史第三轮验证库用 SQLite `VACUUM INTO` 复制到 `.build-tools/validation-round4/old/data/resmanager.db`，在副本中关闭剪贴板记录；用已发布的 **0.2.0** exe 实际打开，确认 8 条条目可读。该 exe ProductVersion 为 0.2.0，SHA256 与 v0.2.0 发布记录一致：`A8BB3A078D7685ED22F39956683EA0002A820C9052F73DCBE37F1A1E598052D3`。
+- 退出这个旧版测试实例，再用 `VACUUM INTO` 复制到 `.build-tools/validation-round4/upgrade/data/resmanager.db`，保存旧条目/文件夹的完整字段快照，随后仅对这份副本运行 0.3.0。
+- 定时提醒用例以 SQL 写入隔离副本，再启动实际 exe 等待真实时间；快速添加、提醒按钮和分组通过 Windows 界面实际操作。未修改系统时间。
+
+### 六项逐项结果
+
+| 项目 | 结果与证据 |
+|---|---|
+| 1. 0.2.0 → 0.3.0 升级、备份、旧数据、说明、幂等 | **通过。** 首启生成 `backup/upgrade-to-v0.3.0-20261015-034915.db`；SQLite `integrity_check=ok`，备份内 8 条旧条目完整字段与升级前快照一致；运行库中旧条目及 3 个文件夹同样逐字段一致。新增 `builtin-guide`，标题「使用说明（ResManager）」且 pinned=1。多次重启及最终构建复查仍只有 1 份升级备份、1 条说明，lastVersion=0.3.0。0.2.0 没有 lastVersion 字段，因此文件名不含无法得知的旧版本段；没有伪造旧版本号。本轮 SCHEMA_VERSION 仍为 1，没有实际结构迁移用例。 |
+| 2. 在线提醒、焦点、系统通知、按钮、不重复 | **通过（系统通知由 Ethan 人工确认）。** 03:51:20 建立 03:53:20 到期的 4 个待办，实际等待两分钟后出现右下角提醒；notifiedAt 等于该次提醒时间。「10 分钟后」写入 snoozeUntil=04:04:00，并在真实十分钟后再次进入提醒列表、notifiedAt 更新为 snoozeUntil；「完成」写入 done/doneAt 并移出提醒；「打开」定位主窗口相应条目；「×」写入 ackAt 并隐藏，等待超过两个 15 秒调度周期没有重复弹出。最终原生修复版另用 30 秒用例回归：提醒出现时快速添加窗口仍在，蓝色输入焦点及 `R4 native focus retained` 草稿保留，未因失焦隐藏；观察期间不执行激活/输入操作。随后再次实际点击完成、打开和 ×，数据及隐藏结果正确。通知设置为开启；自动化未捕获 Windows 系统通知，Ethan 随后针对约 03:53:20 的测试明确确认“看到了系统通知，输入未受影响”，据此将系统通知可见性记为人工验收通过。此确认对应初次两分钟用例，不冒充最终构建的新一次通知实测。 |
+| 3. 离线一分钟到期 | **修复后通过。** 初测：03:55:19 创建、03:55:29 退出、03:56:19 到期、03:56:24 重启，错误显示「待办提醒（1）」。修复后：03:59:46 创建、03:59:56 退出、04:00:46 到期、04:00:52 启动修复版，实际标题为「离线期间有 1 条待办到期」。未将“过期不足一分钟”排除。 |
+| 4. 快速添加类型与快捷语法 | **通过。** 实际打开类型下拉框（命令/文本/链接/软件/文件/待办）并选择待办；填写 `R4 周报验收` 和 `!高 ^周五 17:00 #round4`，提示 `10-16 周五 17:00`、高优先级；Enter 显示已保存，主窗口「待办」的「明天」分组出现该条目。SQLite 确认 type=todo、priority=high、due=1792141200000、remindBefore=0。浏览器预览另从默认文本输入同样语法，确认自动切换待办。 |
+| 5. 125% / 150% 缩放 | **当前单显示器通过。** 实际切换 Windows 显示缩放，分辨率 1920×1080；不是浏览器缩放。最终版 125%：提醒 382×302、原点(1415,615)，快速添加 602×232、原点(1140,702)；150%：提醒 383×303、原点(1313,521)，快速添加 603×233、原点(983,626)。均为工具返回的逻辑截图尺寸（含边框）和屏幕原点，窗口完整显示并位于右下区域；同时出现可重叠。修复后冷启动提醒未再出现多约 30 像素高度。已在设置界面确认恢复原始 **100%**。未测试多显示器混合 DPI、侧边或自动隐藏任务栏。 |
+| 6. exe 体积变化 | **已记录。** v0.2.0 为 8,339,968 字节；最终 v0.3.0 为 **8,496,128 字节**，增加 **156,160 字节 = 152.5 KiB，约 1.872%**。 |
+
+### 浏览器回归、产物与剩余项
+
+- 普通浏览器预览中测试快速添加待办识别/保存，主窗口持久化与待办详情浅色/深色均可用，最终冷启动页面控制台 error 列表为空，结束后恢复浅色。
+- 开发服务器在本轮修改 services/todo 并触发 HMR 时曾出现重复 `createRoot` / `removeChild` 错误；完整重新打开页面后不复现。此为开发热更新的剩余观察项，未扩展改造入口/HMR 结构，也未将该过程描述成全程零错误；release 不使用 HMR。
+- 最终 exe：`D:\dev\project\resource-manager\src-tauri\target\release\resmanager.exe`，内嵌版本 **0.3.0**。
+- 最终 exe SHA256：`E5A41C394FAD8105DC4525A79B338BE7E7AC5F550B4E64BAF448B4AF285E76E3`。用于最后原生焦点、提醒按钮和 125%/150% 回归的副本与该源 exe 哈希一致。
+- 隔离材料保留在 Git 忽略的 `.build-tools/validation-round4/`：旧数据快照、升级首启/重启/最终一致性检查 JSON、提醒时刻及按钮结果 JSON、测试脚本与测试 exe。测试进程和本机 Vite 服务均已停止。
+- **未解决/未覆盖**：多显示器/混合 DPI、托盘人工点击仍保留以前的待验证状态；开发 HMR 上述问题未修复。未据部分用例把 SPEC 所有复合验收项全部勾选。
+- 本轮新增修改范围：`package.json` / `package-lock.json` / `src-tauri/Cargo.lock`、`src/lib/todo.ts` / `services.ts` / `platform.ts`、`src-tauri/src/helpers.rs` / `lib.rs`、`tests/core.test.ts` 和本文。其余用户已提供的第四轮代码保留；版本号原本已是 0.3.0。
+- **未重新打包 ZIP，未创建或修改 GitHub Release，未提交或推送。** `dist-portable` 和公开 v0.2.0 发布产物不变。
+
+### 第四轮补充：系统通知人工确认（2026-10-15）
+
+- Ethan 回复约 03:53:20 的隔离测试提醒询问：**“看到了系统通知，输入未受影响”**。已同步更新上表第 2 项及剩余项；该证据来自用户实际观察，并非自动化捕获。
+- 本次仅补充验证记录，未修改代码、重新构建或运行测试，最终 exe 及其哈希不变；未打包或发布。
+
+## v0.3.0 发布打包（2026-10-15）
+
+- 按用户新的发布指令，打包第四轮已验证的现有 0.3.0 构建，不重新编译或改动功能。发布前沿用本文工具链重跑：前端 **33/33**、TypeScript 类型检查、Rust **9/9** 全部通过。
+- 已确认打包脚本的清理目标为项目内 `dist-portable`，其中没有运行数据库；执行 `pwsh ./scripts/package-portable.ps1` 成功，并生成 UTF-8 无 BOM 的 `dist-portable/SHA256SUMS.txt`（记录 ZIP 的 SHA256）。
+- ZIP 仅含 `ResManager/ResManager.exe`（8,496,128 字节）和 `ResManager/使用说明.txt`（566 字节），不含测试数据或工具链。读取 ZIP 内 exe 流复核，其 SHA256 与第四轮记录完全一致：`E5A41C394FAD8105DC4525A79B338BE7E7AC5F550B4E64BAF448B4AF285E76E3`；源 exe 内嵌版本为 **0.3.0**。
+- ZIP：**4,201,999 字节**；SHA256：`CB8F5AE3E42BA469B20EB5CD82A6BB019D72D3070C43434B02B39B5D4643786E`。
+- `SHA256SUMS.txt` 自身 SHA256：`7B93AD0D0091B5E836EDE55A8B3C8784ED60B7CD9A8F7BE43D820BD9EB9A23E1`。
+- 发布说明准备列出待办（截止时间/优先级/子任务/右下角提醒）、快速添加类型下拉框及 `!高 ^周五 17:00` 写法、升级自动备份、内置使用说明；升级步骤明确为 **托盘退出 → 同目录覆盖 exe（保留 data/backup）→ 启动**。公开发布和匿名下载复核结果在完成后追加。

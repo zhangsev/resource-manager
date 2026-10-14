@@ -8,12 +8,22 @@ import { PhysicalPosition, PhysicalSize, cursorPosition, getCurrentWindow, monit
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
+import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
+import { getVersion } from '@tauri-apps/api/app';
 import { fetch as nativeFetch } from '@tauri-apps/plugin-http';
 
 export const isTauri: boolean =
   typeof window !== 'undefined' && '__TAURI_INTERNALS__' in (window as unknown as Record<string, unknown>);
 
-export type ViewName = 'main' | 'launcher' | 'quickadd';
+export type ViewName = 'main' | 'launcher' | 'quickadd' | 'reminder';
+
+const SMALL_VIEWS: ViewName[] = ['launcher', 'quickadd', 'reminder'];
+
+/** logical (DIP) sizes of the bottom-right windows; keep in sync with tauri.conf.json */
+const CORNER_SIZE: Partial<Record<ViewName, [number, number]>> = {
+  quickadd: [600, 230],
+  reminder: [380, 300],
+};
 
 /** Desktop requests use Rust HTTP to avoid WebView CORS; preview keeps browser fetch. */
 export const httpFetch: typeof fetch = (input, init) =>
@@ -21,12 +31,11 @@ export const httpFetch: typeof fetch = (input, init) =>
 
 export function currentView(): ViewName {
   if (isTauri) {
-    const label = getCurrentWindow().label;
-    if (label === 'launcher' || label === 'quickadd') return label;
-    return 'main';
+    const label = getCurrentWindow().label as ViewName;
+    return SMALL_VIEWS.includes(label) ? label : 'main';
   }
-  const v = new URLSearchParams(location.search).get('view');
-  return v === 'launcher' || v === 'quickadd' ? v : 'main';
+  const v = new URLSearchParams(location.search).get('view') as ViewName;
+  return SMALL_VIEWS.includes(v) ? v : 'main';
 }
 
 // ---------------------------------------------------------------- paths
@@ -160,22 +169,29 @@ export async function pickSavePath(defaultPath: string, ext: string): Promise<st
 
 // ---------------------------------------------------------------- windows
 
-export async function showWindow(label: ViewName): Promise<void> {
+export async function showWindow(label: ViewName, opts: { focus?: boolean } = {}): Promise<void> {
+  const focus = opts.focus ?? label !== 'reminder'; // reminders must not steal the keyboard
   if (!isTauri) {
-    const size = label === 'quickadd' ? 'width=600,height=230' : 'width=720,height=520';
+    const cs = CORNER_SIZE[label];
+    const size = cs ? `width=${cs[0]},height=${cs[1]}` : 'width=720,height=520';
     window.open(`?view=${label}`, `resmanager-${label}`, size);
     return;
   }
   const w = await WebviewWindow.getByLabel(label);
   if (!w) return;
-  if (label === 'quickadd') await placeBottomRight(w);
-  await w.show();
-  await w.unminimize();
-  await w.setFocus();
+  const cs = CORNER_SIZE[label];
+  if (cs) await placeBottomRight(w, cs);
+  if (label === 'reminder') await invoke('set_reminder_visible', { visible: true });
+  else await w.show();
+  // The first native show can adjust the hidden window's frame/DPI size.
+  // Restore the corner geometry once visible, and never activate a reminder.
+  if (focus) await w.unminimize();
+  if (cs) await placeBottomRight(w, cs);
+  if (focus) await w.setFocus();
 }
 
 /** Put a window in the bottom-right corner of the work area (above the taskbar) of the monitor under the cursor. */
-async function placeBottomRight(w: WebviewWindow, margin = 16): Promise<void> {
+async function placeBottomRight(w: WebviewWindow, [dipW, dipH]: [number, number], margin = 16): Promise<void> {
   try {
     const c = await cursorPosition();
     const m = (await monitorFromPoint(c.x, c.y)) ?? (await primaryMonitor());
@@ -184,9 +200,9 @@ async function placeBottomRight(w: WebviewWindow, margin = 16): Promise<void> {
       .workArea;
     const area = wa ?? { position: m.position, size: { width: m.size.width, height: m.size.height - Math.round(48 * m.scaleFactor) } };
     // Hidden windows can retain their old physical size after a DPI change.
-    // Move onto the target monitor first, then restore the configured 600×230 DIP size.
+    // Move onto the target monitor first, then restore the configured DIP size.
     await w.setPosition(new PhysicalPosition(area.position.x, area.position.y));
-    await w.setSize(new PhysicalSize(Math.round(600 * m.scaleFactor), Math.round(230 * m.scaleFactor)));
+    await w.setSize(new PhysicalSize(Math.round(dipW * m.scaleFactor), Math.round(dipH * m.scaleFactor)));
     const size = await w.outerSize();
     const pad = Math.round(margin * m.scaleFactor);
     await w.setPosition(
@@ -201,7 +217,10 @@ async function placeBottomRight(w: WebviewWindow, margin = 16): Promise<void> {
 }
 
 export async function hideCurrentWindow(): Promise<void> {
-  if (isTauri) await getCurrentWindow().hide();
+  if (isTauri) {
+    if (getCurrentWindow().label === 'reminder') await invoke('set_reminder_visible', { visible: false });
+    else await getCurrentWindow().hide();
+  }
 }
 
 export async function onWindowFocus(cb: (focused: boolean) => void): Promise<() => void> {
@@ -252,4 +271,30 @@ export async function subscribe<T = unknown>(event: string, cb: (payload: T) => 
   };
   channel.addEventListener('message', h);
   return () => channel.removeEventListener('message', h);
+}
+
+// ---------------------------------------------------------------- notifications / version
+
+/** Windows toast (best effort: focus assist or a company policy may suppress it). */
+export async function notify(title: string, body: string): Promise<void> {
+  try {
+    if (isTauri) {
+      let ok = await isPermissionGranted();
+      if (!ok) ok = (await requestPermission()) === 'granted';
+      if (ok) sendNotification({ title, body });
+      return;
+    }
+    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') new Notification(title, { body });
+  } catch {
+    /* the in-app reminder window is the primary channel */
+  }
+}
+
+export async function appVersion(): Promise<string> {
+  if (!isTauri) return '0.0.0-preview';
+  try {
+    return await getVersion();
+  } catch {
+    return 'unknown';
+  }
 }

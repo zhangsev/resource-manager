@@ -398,3 +398,28 @@ mod tests {
         assert!(d.join("keep.txt").exists());
     }
 }
+
+/// Tauri's Windows `show()` activates even a window configured with `focus: false`.
+/// Keep the reminder's native show/hide paired so Tao's cached visibility is not used.
+#[cfg(windows)]
+pub fn set_reminder_visible(hwnd: isize, visible: bool) -> std::io::Result<()> {
+    if hwnd == 0 {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid reminder window"));
+    }
+    #[link(name = "user32")]
+    extern "system" {
+        fn ShowWindow(hwnd: isize, command: i32) -> i32;
+    }
+    // SAFETY: the caller obtains this app-owned HWND from Tauri; no pointer is dereferenced.
+    // SW_SHOWNOACTIVATE = 4, SW_HIDE = 0. The return value is prior visibility, not success.
+    unsafe {
+        ShowWindow(hwnd, if visible { 4 } else { 0 });
+    }
+    Ok(())
+}
+
+#[cfg(all(test, windows))]
+#[test]
+fn reminder_rejects_null_window() {
+    assert_eq!(set_reminder_visible(0, true).unwrap_err().kind(), std::io::ErrorKind::InvalidInput);
+}

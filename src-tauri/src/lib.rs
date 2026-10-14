@@ -39,6 +39,20 @@ fn err(e: std::io::Error) -> String {
 // ------------------------------------------------------------------ commands
 
 #[tauri::command]
+fn set_reminder_visible(app: AppHandle, visible: bool) -> Result<(), String> {
+    let window = app.get_webview_window("reminder").ok_or("提醒窗口不存在")?;
+    #[cfg(windows)]
+    {
+        let hwnd = window.hwnd().map_err(|e| e.to_string())?;
+        helpers::set_reminder_visible(hwnd.0 as isize, visible).map_err(err)
+    }
+    #[cfg(not(windows))]
+    {
+        if visible { window.show() } else { window.hide() }.map_err(|e| e.to_string())
+    }
+}
+
+#[tauri::command]
 fn app_paths() -> Result<AppPathsDto, String> {
     let p = helpers::app_paths().map_err(err)?;
     Ok(AppPathsDto {
@@ -117,6 +131,7 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
             app_paths,
             path_info,
@@ -126,7 +141,8 @@ pub fn run() {
             run_in_terminal,
             write_text_file,
             read_text_file,
-            prune_backups
+            prune_backups,
+            set_reminder_visible
         ])
         .setup(|app| {
             // fail early with a readable message if no data directory is writable
@@ -173,7 +189,11 @@ pub fn run() {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 // closing any window only hides it; "退出" in the tray menu really quits
                 api.prevent_close();
-                let _ = window.hide();
+                if window.label() == "reminder" {
+                    let _ = set_reminder_visible(window.app_handle().clone(), false);
+                } else {
+                    let _ = window.hide();
+                }
             }
         })
         .run(tauri::generate_context!())

@@ -4,7 +4,7 @@ import { basename, typeForDroppedPath } from '../lib/detect';
 import { descendantIds, folderPath } from '../lib/folders';
 import { copyText, isTauri, onFileDrop, pathInfo, subscribe } from '../lib/platform';
 import { rank } from '../lib/search';
-import { EV_EDIT_DRAFT, openLauncher, openQuickAdd, useBackgroundServices } from '../lib/services';
+import { EV_EDIT_DRAFT, EV_SHOW_ITEM, openLauncher, openQuickAdd, useBackgroundServices } from '../lib/services';
 import { ITEM_TYPES, TYPE_LABEL, blankItem, type Item, type ItemType } from '../lib/types';
 import { ConfirmButton, EmptyState, Kbd, TypeBadge, timeAgo } from '../components/common';
 import { ItemDetail } from '../components/ItemDetail';
@@ -12,6 +12,7 @@ import { ItemEditor } from '../components/ItemEditor';
 import { SettingsDialog } from '../components/SettingsDialog';
 import { Sidebar, type Filter } from '../components/Sidebar';
 import { EV_FOCUS_ITEM } from './Launcher';
+import { TodoCheck, TodoList, TodoMeta, useNow, useTodoToggle } from '../components/todo';
 
 type Pane = { mode: 'view'; id: string } | { mode: 'edit'; id: string } | { mode: 'new'; draft: Item } | null;
 
@@ -43,6 +44,21 @@ export function MainWindow() {
       setFilter({ kind: 'all' });
       setQuery('');
       setPane({ mode: 'edit', id });
+    }).then((u) => (disposed ? u() : (un = u)));
+    return () => {
+      disposed = true;
+      un?.();
+    };
+  }, []);
+
+  // "打开" from the reminder window
+  useEffect(() => {
+    let disposed = false;
+    let un: (() => void) | undefined;
+    subscribe<string>(EV_SHOW_ITEM, (id) => {
+      setFilter({ kind: 'type', type: 'todo' });
+      setQuery('');
+      setPane({ mode: 'view', id });
     }).then((u) => (disposed ? u() : (un = u)));
     return () => {
       disposed = true;
@@ -151,7 +167,7 @@ export function MainWindow() {
         searchRef.current?.select();
       } else if (ctrl && e.key.toLowerCase() === 'n') {
         e.preventDefault();
-        startNew('command');
+        startNew(filterRef.current.kind === 'type' ? filterRef.current.type : 'command');
       }
     };
     window.addEventListener('keydown', h);
@@ -188,6 +204,9 @@ export function MainWindow() {
   }, [app.items, app.folders, app.keys, filter, query]);
 
   const selectedId = pane && pane.mode !== 'new' ? pane.id : null;
+  const isTodoView = filter.kind === 'type' && filter.type === 'todo';
+  const now = useNow();
+  const todoToggle = useTodoToggle();
   const selected = selectedId ? app.items.find((i) => i.id === selectedId) ?? null : null;
 
   // keep a selection when the list changes
@@ -308,21 +327,27 @@ export function MainWindow() {
                 <span className="muted">{filtered.length} 条</span>
               </div>
               <div className="list-body">
-                {filtered.map((it) => (
+                {isTodoView ? (
+                  <TodoList items={filtered} selectedId={selectedId} onSelect={(id) => setPane({ mode: 'view', id })} />
+                ) : filtered.map((it) => (
                   <div
                     key={it.id}
                     className={'row-item' + (it.id === selectedId ? ' sel' : '')}
                     onClick={() => setPane({ mode: 'view', id: it.id })}
                     onDoubleClick={() => setPane({ mode: 'edit', id: it.id })}
                   >
-                    <TypeBadge type={it.type} size="sm" />
+                    {it.type === 'todo' ? (
+                      <TodoCheck done={!!it.meta.done !== todoToggle.leaving.has(it.id)} priority={it.meta.priority} onToggle={() => todoToggle.toggle(it)} />
+                    ) : (
+                      <TypeBadge type={it.type} size="sm" />
+                    )}
                     <div className="ri-main">
                       <div className="ri-title">
                         {it.pinned && <span className="pin">●</span>}
-                        <span className="ellipsis">{it.title}</span>
+                        <span className={'ellipsis' + (it.type === 'todo' && it.meta.done ? ' todo-done-title' : '')}>{it.title}</span>
                         {missing.has(it.id) && <span className="badge-warn">失效</span>}
                       </div>
-                      <div className="ri-sub ellipsis">{subline(it)}</div>
+                      {it.type === 'todo' ? <TodoMeta it={it} now={now} /> : <div className="ri-sub ellipsis">{subline(it)}</div>}
                       {it.tags.length > 0 && (
                         <div className="ri-tags">
                           {it.tags.slice(0, 4).map((t) => (
@@ -337,8 +362,14 @@ export function MainWindow() {
                 ))}
                 {app.ready && filtered.length === 0 && (
                   <EmptyState
-                    title={query ? '没有匹配的条目' : '这里还是空的'}
-                    hint={query ? '换个关键词，或试试拼音首字母' : '点「+ 新建」，或把文件拖进窗口'}
+                    title={query ? '没有匹配的条目' : isTodoView ? '没有待办' : '这里还是空的'}
+                    hint={
+                      query
+                        ? '换个关键词，或试试拼音首字母'
+                        : isTodoView
+                          ? `按 ${app.settings.hotkeyQuickAdd} 选「待办」，第二行写「交周报 !高 ^周五 17:00」`
+                          : '点「+ 新建」，或把文件拖进窗口'
+                    }
                   />
                 )}
               </div>
